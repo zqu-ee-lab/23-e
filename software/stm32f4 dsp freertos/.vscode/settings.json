@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "sys.h": "c",
+        "freertos.h": "c",
+        "freertosconfig.h": "c",
+        "stm32f4xx.h": "c",
+        "software_callback_function.h": "c",
+        "semphr.h": "c",
+        "usart.h": "c",
+        "__bit_reference": "c",
+        "__hash_table": "c",
+        "string_view": "c",
+        "unordered_map": "c",
+        "steeper.h": "c",
+        "stepper.h": "c",
+        "pid.h": "c",
+        "quadrangle.h": "c"
+    }
+}

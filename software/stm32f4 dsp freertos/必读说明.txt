@@ -1,0 +1,4 @@
+EN:
+before you rebuild this project,you have to make sure that you have already downloaded stm32f4xx DFP version 2.17.1 or lastest version in Pack Installer,ARM CMSIS DSP is also require to install in Pack Installer
+CN:
+必须确保在编译之前Pack Installer里面已经下载了 stm32f4xx dfp 2.17.1版本或最新版本，arm cmsis dsp也要求安装
