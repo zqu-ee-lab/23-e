@@ -46,7 +46,7 @@
 */
 
 /* 按键口对应的RCC时钟 */
-#define RCC_ALL_KEY (RCC_AHB1Periph_GPIOC | RCC_AHB1Periph_GPIOF | RCC_AHB1Periph_GPIOH | RCC_AHB1Periph_GPIOI | RCC_AHB1Periph_GPIOG)
+#define RCC_ALL_KEY (RCC_AHB1Periph_GPIOB | RCC_AHB1Periph_GPIOE)
 
 // #define GPIO_PORT_K1    GPIOA
 // #define GPIO_PIN_K1	    GPIO_Pin_15
@@ -414,7 +414,7 @@ static void bsp_DetectKey(uint8_t i)
 				}
 				else
 				{
-					bsp_PutKey((uint8_t)(3 * i + 2));
+					bsp_PutKey((uint8_t)(3 * i + 1));
 				}
 				pBtn->Count = 0;
 			}

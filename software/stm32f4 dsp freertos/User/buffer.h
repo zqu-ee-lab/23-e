@@ -6,11 +6,11 @@
 #define IS_FULL 1 + 0xFF
 #define IS_EMPTY 2 + 0xFF
 
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 128
 #define BUFFER_SIZE_U1 30
 #define BUFFER_SIZE_U2 30
 #define BUFFER_SIZE_U3 30
-#define BUFFER_SIZE_U4 32
+#define BUFFER_SIZE_U4 128
 #define BUFFER_SIZE_U5 30
 
 extern struct Buff *U3_buffer_handle, *U2_buffer_handle, *Soft_Usart_handle, *U1_buffer_handle, *U4_buffer_handle, *U5_buffer_handle, *IIC_buff_handle;

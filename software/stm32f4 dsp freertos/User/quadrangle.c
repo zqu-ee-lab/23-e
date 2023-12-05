@@ -26,7 +26,12 @@ void Quadrangle_Sort(struct quadrangle_t *this)
     float32_t k[3];
     for (int i = 1; i < 4; i++)
     {
-        k[i - 1] = (this->dots[i].y - this->dots[0].y) / (this->dots[i].x - this->dots[0].x);
+        float32_t dx = this->dots[i].x - this->dots[0].x;
+        if (dx == 0)
+        {
+            dx = .0001f;
+        }
+        k[i - 1] = (this->dots[i].y - this->dots[0].y) / dx;
     }
 
     // sort the dots
@@ -34,11 +39,14 @@ void Quadrangle_Sort(struct quadrangle_t *this)
     {
         for (int j = i + 1; j < 4; j++)
         {
-            if (k[i - 1] < k[j - 1])
+            if (k[i - 1] > k[j - 1])
             {
                 temp_dot = this->dots[i];
                 this->dots[i] = this->dots[j];
                 this->dots[j] = temp_dot;
+                float32_t temp_k = k[i - 1];
+                k[i - 1] = k[j - 1];
+                k[j - 1] = temp_k;
             }
         }
     }
@@ -61,26 +69,14 @@ void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
     }
 }
 
-struct quadrangle_t *Quadrangle_Init(struct quadrangle_t **this_address)
+void Quadrangle_unInit(struct quadrangle_t *this)
 {
-    (*this_address) = (struct quadrangle_t *)pvPortMalloc(sizeof(struct quadrangle_t));
-    if ((*this_address) == NULL)
-    {
-        while (1)
-        {
-            ;
-        }
-    }
-    (*this_address)->init = Quadrangle_Init;
-    (*this_address)->Sort = Quadrangle_Sort;
-    (*this_address)->GetDotsOnLines = Quadrangle_GetDotsOnLines;
-
-    return (*this_address);
+    vPortFree(this);
 }
 
-struct quadrangle_t * Quadrangle_Init_With_Dots(struct dot_t *dots)
+struct quadrangle_t *Quadrangle_Init()
 {
-    struct quadrangle_t * this = (struct quadrangle_t *)pvPortMalloc(sizeof(struct quadrangle_t));
+    struct quadrangle_t* this = (struct quadrangle_t *)pvPortMalloc(sizeof(struct quadrangle_t));
     if (this == NULL)
     {
         while (1)
@@ -88,7 +84,23 @@ struct quadrangle_t * Quadrangle_Init_With_Dots(struct dot_t *dots)
             ;
         }
     }
-    this->init = Quadrangle_Init;
+    this->Sort = Quadrangle_Sort;
+    this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
+    this->unInit = Quadrangle_unInit;
+
+    return this;
+}
+
+struct quadrangle_t *Quadrangle_Init_With_Dots(struct dot_t *dots)
+{
+    struct quadrangle_t *this = (struct quadrangle_t *)pvPortMalloc(sizeof(struct quadrangle_t));
+    if (this == NULL)
+    {
+        while (1)
+        {
+            ;
+        }
+    }
     this->Sort = Quadrangle_Sort;
     this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
     for (int i = 0; i < 4; i++)
@@ -97,6 +109,7 @@ struct quadrangle_t * Quadrangle_Init_With_Dots(struct dot_t *dots)
     }
     this->Sort(this);
     this->GetDotsOnLines(this);
+    this->unInit = Quadrangle_unInit;
 
     return this;
 }

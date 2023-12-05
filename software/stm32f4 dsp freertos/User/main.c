@@ -81,6 +81,7 @@
 #include "sys.h"
 #include "key.h"
 #include <math.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include "limits.h"
 #include "encoder.h"
@@ -90,6 +91,7 @@
 #include "Stepper.h"
 #include "software_callback_function.h"
 #include "SysInfoTest.h"
+#include "my_math.h"
 
 /**************************** 任务句柄 ********************************/
 /*
@@ -105,6 +107,8 @@ static TaskHandle_t OLED_SHOW_Handle = NULL;     //+OLDE显示句柄
 static TaskHandle_t AppTaskCreate_Handle = NULL; //+创建任务句柄
 static TaskHandle_t KEY_SCAN_Handle = NULL;      //+KEY_SCAN句柄
 static TaskHandle_t Task_schedule_Handle = NULL; //+SysInfoTestSent句柄
+static TaskHandle_t Follow_By_Quadrangle_Handle = NULL;
+static TaskHandle_t Return_The_Original_Point_Handle = NULL;
 
 EventGroupHandle_t Group_One_Handle = NULL; //+事件组句柄
 
@@ -120,6 +124,8 @@ struct quadrangle_t *quadrangle_handle = NULL;
 struct dot_t dot_red;
 struct dot_t dot_green;
 
+struct dot_t pencil_line[4];
+
 struct dot_t *dot_red_handle = &dot_red;
 struct dot_t *dot_green_handle = &dot_green;
 
@@ -134,7 +140,9 @@ struct PID *Y_PID_handle = &Y_PID;
 *                             函数声明
 *************************************************************************
 */
+static void Return_The_Original_Point(void *pvParameters);
 static void analyse_data(void);
+static void Follow_By_Quadrangle(void *pvParameters);
 static void AppTaskCreate(void);               /* 用于创建任务 */
 static void Task__TWO(void *pvParameters);     /* Test_Task任务实现 */
 static void OLED_SHOW(void *pvParameters);     /* Test_Task任务实现 */
@@ -227,11 +235,30 @@ static void AppTaskCreate(void)
                           (TaskHandle_t *)&analyse_data_Handle); /* 任务控制块指针 */
     if (xReturn == pdPASS)
         App_Printf("analyse_data任务创建成功\r\n");
-    motor_running_Handle = xTimerCreate((const char *)"line_walking",
-                                        (TickType_t)30,                          /* 定时器周期 1000(tick) */
-                                        (UBaseType_t)pdTRUE,                     /* 周期模式 */
-                                        (void *)1,                               /* 为每个计时器分配一个索引的唯一ID */
-                                        (TimerCallbackFunction_t)motor_running); //! 回调函数名
+    xReturn = xTaskCreate((TaskFunction_t)Task_schedule,
+                          (const char *)"Task_schedule",
+                          (uint16_t)256,                          /* 任务栈大小 */
+                          (void *)NULL,                           /* 任务入口函数参数 */
+                          (UBaseType_t)9,                         /* 任务的优先级 */
+                          (TaskHandle_t *)&Task_schedule_Handle); /* 任务控制块指针 */
+    if (xReturn == pdPASS)
+        App_Printf("Task_schedule任务创建成功\r\n");
+    xReturn = xTaskCreate((TaskFunction_t)Follow_By_Quadrangle,
+                          (const char *)"Follow_By_Quadrangle",
+                          (uint16_t)256,                                 /* 任务栈大小 */
+                          (void *)NULL,                                  /* 任务入口函数参数 */
+                          (UBaseType_t)9,                                /* 任务的优先级 */
+                          (TaskHandle_t *)&Follow_By_Quadrangle_Handle); /* 任务控制块指针 */
+    if (xReturn == pdPASS)
+        App_Printf("Follow_By_Quadrangle任务创建成功\r\n");
+    xReturn = xTaskCreate((TaskFunction_t)Return_The_Original_Point,
+                          (const char *)"Return_The_Original_Point",
+                          (uint16_t)256,                                      /* 任务栈大小 */
+                          (void *)NULL,                                       /* 任务入口函数参数 */
+                          (UBaseType_t)9,                                     /* 任务的优先级 */
+                          (TaskHandle_t *)&Return_The_Original_Point_Handle); /* 任务控制块指针 */
+    if (xReturn == pdPASS)
+        App_Printf("Return_The_Original_Point任务创建成功\r\n");
 
     sendto_Upper_Handle = xTimerCreate((const char *)"sendto_Upper",
                                        (TickType_t)40,                         /* 定时器周期 1000(tick) */
@@ -239,16 +266,17 @@ static void AppTaskCreate(void)
                                        (void *)3,                              /* 为每个计时器分配一个索引的唯一ID */
                                        (TimerCallbackFunction_t)sendto_Upper); //! 回调函数名
 
-    xTimerStop(motor_running_Handle, 1);
     xTimerStop(sendto_Upper_Handle, 1);
 
     // xTimerStart(sendto_Upper_Handle, 0); //! 发送数据到上位机定时器
 
     Task_Number_Handle = xQueueCreate(1, 1); // 开始解析数据
     Group_One_Handle = xEventGroupCreate();
-    Group_One_Handle = Group_One_Handle;
+    SET_EVENT(GAME_OVER);
 
     // 挂机任务，等待选择任务
+    vTaskSuspend(Follow_By_Quadrangle_Handle);
+    vTaskSuspend(Return_The_Original_Point_Handle);
     // vTaskResume(analyse_data_Handle);
     // vTaskSuspend(Task__TWO_Handle);
     vTaskDelete(AppTaskCreate_Handle); // 删除AppTaskCreate任务
@@ -265,38 +293,53 @@ static void analyse_data(void)
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
     xLastWakeTime = xTaskGetTickCount();
-    const char head_laser[2] = {0xFE, 0xFE};
-    const char head_quadrangle[3] = {0xFE, 0xFF};
-    char data[2];
-    struct dot_t dots_local[4];
+    const char head_red_laser[2] = {0xFE, 0xFE};
+    const char head_green_laser[2] = {0xFE, 0xFD};
+    const char head_quadrangle[2] = {0xFE, 0xFF};
+
+    struct quadrangle_t *quadrangle_local_handle = Quadrangle_Init();
     struct dot_t dot_red_local;
+    struct dot_t dot_green_local;
 
     for (;;)
     {
         /* code */
 
         // usart2 get data
-        if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_laser, 2, &dot_red_local, 16, 1, 2) == 2)
-        {
-            App_Printf("get laser data\r\n");
-            // memcpy(&dot_red, &dot_red_local, sizeof(struct dot_t));
-            // SET_EVENT(GOT_DOT_RED);
-        }
-
-        if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_quadrangle, 2, dots_local, 16, 1, 8) == 8)
+        // get the quadrangle data
+        if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_quadrangle, 2, quadrangle_local_handle->dots, 16, 1, 8) == 8)
         {
             App_Printf("get quadrangle data\r\n");
-            // memcpy(dots_local, data, sizeof(struct dot_t) * 4);
-            // memcpy(quadrangle_handle->dots, dots_local, sizeof(struct dot_t) * 4);
-            // quadrangle_handle->Sort(quadrangle_handle);
-            // quadrangle_handle->GetDotsOnLines(quadrangle_handle);
-            // SET_EVENT(GOT_QUADRANGLE);
+            quadrangle_local_handle->Sort(quadrangle_local_handle);
+            quadrangle_local_handle->GetDotsOnLines(quadrangle_local_handle);
+            memcpy(quadrangle_handle, quadrangle_local_handle, sizeof(struct quadrangle_t));
+            App_Printf("quadrangle data is:\n%d %d \n%d %d\n%d %d \n%d %d\n", quadrangle_handle->dots[0].x, quadrangle_handle->dots[0].y,
+                       quadrangle_handle->dots[1].x, quadrangle_handle->dots[1].y, quadrangle_handle->dots[2].x, quadrangle_handle->dots[2].y,
+                       quadrangle_handle->dots[3].x, quadrangle_handle->dots[3].y);
+            SET_EVENT(GOT_QUADRANGLE);
+        }
+
+        // get the red laser dot
+        if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_red_laser, 2, &dot_red_local, 16, 1, 2) == 2)
+        {
+            // App_Printf("get laser data\r\n");
+            if ((dot_red_local.x) + (dot_red_local.y))
+            {
+                memcpy(&dot_red, &dot_red_local, sizeof(struct dot_t));
+                SET_EVENT(GOT_DOT_RED);
+            }
+        }
+
+        // get the green laser dot
+        if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_green_laser, 2, &dot_green_local, 16, 1, 2) == 2)
+        {
+            App_Printf("get green laser data\r\n");
+            memcpy(&dot_green, &dot_green_local, sizeof(struct dot_t));
+            SET_EVENT(GOT_DOT_GREEN);
         }
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
-
-    // printf("%d\r\n", temp);
 }
 
 /**
@@ -338,73 +381,153 @@ static void KEY_SCAN(void *parameter)
 
 static void Task_schedule(void *pvParameters)
 {
-    const uint8_t task1_instruction[3] = {0X55, 0x01, 0X56};
-    const uint8_t task2_instruction[3] = {0X55, 0x02, 0X56};
+    const uint8_t detect_quadrangle_instruction[3] = {0X55, 0x01, 0X56};
+    const uint8_t detect_red_dot_instruction[3] = {0X55, 0x02, 0X56};
+    const uint8_t detect_two_dots_instruction[3] = {0X55, 0x03, 0X56};
+    const uint8_t stop_detecting_instruction[3] = {0X55, 0x04, 0X56};
+    uint8_t Key_Value = 0;
     while (1)
     {
-        uint8_t Key_Value = bsp_GetKey();
+        Key_Value = bsp_GetKey();
+        // send the instruction to the upper computer
         if (CHECK_EVENT(GAME_OVER))
         {
+            Usart_SendArray(UART5, stop_detecting_instruction, 3);
             switch (Key_Value)
             {
             case task1:
                 // 开始让激光回到原点
                 App_Printf("task1\r\n");
+                do
+                {
+                    Usart_SendArray(UART5, detect_red_dot_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_DOT_RED));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Return_The_Original_Point_Handle);
                 break;
             case task2:
                 // 开始走外面的铅笔线
                 App_Printf("task2\r\n");
+                quadrangle_handle->unInit(quadrangle_handle);
+                quadrangle_handle = Quadrangle_Init_With_Dots(pencil_line);
+                do
+                {
+                    Usart_SendArray(UART5, detect_red_dot_instruction, 3);
+                } while (!CHECK_EVENT(GOT_DOT_RED));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Follow_By_Quadrangle_Handle);
                 break;
             case task3:
                 // 开始走里面的A4纸线
                 App_Printf("task3\r\n");
+                do
+                {
+                    Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_QUADRANGLE));
+                do
+                {
+                    Usart_SendArray(UART5, detect_red_dot_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_DOT_RED));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Follow_By_Quadrangle_Handle);
                 break;
             case task4:
                 // 开始走不规则摆放里面的A4纸线
                 App_Printf("task4\r\n");
+                do
+                {
+                    Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_QUADRANGLE));
+                do
+                {
+                    Usart_SendArray(UART5, detect_red_dot_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_DOT_RED));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Follow_By_Quadrangle_Handle);
                 break;
             case task5:
                 // 开始发挥题，回到原点
                 App_Printf("task5\r\n");
+                do
+                {
+                    Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
+                    vTaskDelay(100);
+                } while (!CHECK_EVENT(GOT_QUADRANGLE));
+                do
+                {
+                    Usart_SendArray(UART5, detect_two_dots_instruction, 3);
+                    vTaskDelay(100);
+                } while ((!CHECK_EVENT(GOT_DOT_RED)) && (!CHECK_EVENT(GOT_DOT_GREEN)));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Return_The_Original_Point_Handle);
+                // !the code is not complete, we need to resume another task to achieve that green dot is following the red dot
                 break;
             case task6:
                 // 开始发挥题，走里面的A4纸线
                 App_Printf("task6\r\n");
+                do
+                {
+                    Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
+                    vTaskDelay(100);
+                } while (CHECK_EVENT(GOT_QUADRANGLE));
+                do
+                {
+                    Usart_SendArray(UART5, detect_two_dots_instruction, 3);
+                    vTaskDelay(100);
+                } while ((!CHECK_EVENT(GOT_DOT_RED)) && (!CHECK_EVENT(GOT_DOT_GREEN)));
+                CLEAR_EVENT(GAME_OVER);
+                vTaskResume(Follow_By_Quadrangle_Handle);
+                // !the code is not complete, we need to resume another task to achieve that green dot is following the red dot
                 break;
             default:
                 break;
             }
         }
+
         vTaskDelay(100);
     }
 }
 
-void Follow_By_Quadrangle(void *pvParameters)
+static void Follow_By_Quadrangle(void *pvParameters)
 {
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(50); // 10ms
     xLastWakeTime = xTaskGetTickCount();
+
+    static int which_line = 0;
+    static int which_dot_on_line = 0;
+    static struct dot_t aim_dot;
+
+    static int x_error = 0;
+    static int y_error = 0;
+    static int x_target = 0;
+    static int y_target = 0;
 
     for (;;)
     {
-        static int which_line = 0;
-        static int which_dot_on_line = 0;
-        static struct dot_t aim_dot;
+        // this section is used to stop the task, the judgement will never be true, the only way to stop the task is to use goto
+        if (0)
+        {
+        stop_this_task:
+            vTaskSuspend(Follow_By_Quadrangle_Handle);
+        }
 
-        static int x_error = 0;
-        static int y_error = 0;
-        static int x_target = 0;
-        static int y_target = 0;
-
+        aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
         // 1. get error
-        x_error = dot_red.x - aim_dot.x;
-        y_error = dot_red.y - aim_dot.y;
+        x_error = -(dot_red.x - aim_dot.x);
+        y_error = -(dot_red.y - aim_dot.y);
 
         // 2. update the aim dot
-        if ((x_error < 2) && (y_error < 2))
+        if ((abs(x_error) < 4) && (abs(y_error) < 4))
         {
             which_dot_on_line++;
             if (which_dot_on_line == DOT_NUM)
+
             {
                 which_dot_on_line = 0;
                 which_line++;
@@ -412,29 +535,40 @@ void Follow_By_Quadrangle(void *pvParameters)
                 {
                     which_line = 0;
                     SET_EVENT(GAME_OVER);
-                    vTaskSuspend(Follow_By_Quadrangle);
+
+                    // the delay in here is used for waiting linux upper got the instruction that the task is over
+                    vTaskDelay(100);
+                    CLEAR_EVENT(GOT_DOT_RED);
+                    CLEAR_EVENT(GOT_DOT_GREEN);
+                    CLEAR_EVENT(GOT_QUADRANGLE);
+                    goto stop_this_task;
                 }
             }
-            aim_dot = quadrangle_handle->dots_on_lines[which_line][which_dot_on_line];
+            aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
 
             // get the error again
-            x_error = dot_red.x - aim_dot.x;
-            y_error = dot_red.y - aim_dot.y;
+            x_error = -(dot_red.x - aim_dot.x);
+            y_error = -(dot_red.y - aim_dot.y);
         }
 
         // 3. calculate the target position by PID
+        const int16_t X_Max = 10;
+        const int16_t Y_Max = 10;
+        App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
         x_target = PID_Realize(X_PID_handle, x_error);
         y_target = PID_Realize(Y_PID_handle, y_error);
+        VAL_LIMIT(x_target, -X_Max, X_Max);
+        VAL_LIMIT(y_target, -Y_Max, Y_Max);
 
         // 4. set the target position
-        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), x_target);
-        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), y_target);
+        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
+        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_target > 0) ? y_target : -y_target);
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
-void Return_The_Original_Point(void *pvParameters)
+static void Return_The_Original_Point(void *pvParameters)
 {
     const struct dot_t original_point = {0, 0}; // !the original point need to be set
 
@@ -447,17 +581,24 @@ void Return_The_Original_Point(void *pvParameters)
     static int arrived_times = 0;
 
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(50); // 50ms
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
     {
+        // this section is used to stop the task, the judgement will never be true, the only way to stop the task is to use goto
+        if (0)
+        {
+        stop_this_task:
+            vTaskSuspend(Return_The_Original_Point_Handle);
+        }
+
         // 1. get error
-        x_error = dot_red.x - original_point.x;
-        y_error = dot_red.y - original_point.y;
+        x_error = -(dot_red.x - original_point.x);
+        y_error = -(dot_red.y - original_point.y);
 
         // 2. judge whether the target position is reached
-        if (x_error < 2 && y_error < 2)
+        if ((abs(x_error) < 2) && (abs(y_error) < 2))
         {
             // stop the timer
             arrived_times++;
@@ -465,17 +606,28 @@ void Return_The_Original_Point(void *pvParameters)
             {
                 arrived_times = 0;
                 SET_EVENT(GAME_OVER);
-                xTimerStop(motor_running_Handle, 0);
+
+                // the delay in here is used for waiting linux upper got the instruction that the task is over
+                vTaskDelay(100);
+                CLEAR_EVENT(GOT_DOT_RED);
+                CLEAR_EVENT(GOT_DOT_GREEN);
+                CLEAR_EVENT(GOT_QUADRANGLE);
+
+                goto stop_this_task;
             }
         }
 
         // 3. calculate the target position by PID
+        const int16_t X_Max = 10;
+        const int16_t Y_Max = 10;
         x_PID_output_local = PID_Realize(X_PID_handle, x_error);
         y_PID_output_local = PID_Realize(Y_PID_handle, y_error);
+        VAL_LIMIT(x_PID_output_local, -X_Max, X_Max);
+        VAL_LIMIT(y_PID_output_local, -Y_Max, Y_Max);
 
         // 4. set the target position
-        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), x_PID_output_local);
-        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), y_PID_output_local);
+        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
+        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_target > 0) ? y_target : -y_target);
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
@@ -491,19 +643,29 @@ static void USER_Init(void)
     vSetupSysInfoTest();
 #endif
 
-    red_x_stepper_motor_handle = Stepper_Init(USART2, 0x03);
-    red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02);
+    red_x_stepper_motor_handle = Stepper_Init(USART2, 0x01, U2_buffer_handle);
+    red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02, U4_buffer_handle);
 
-    red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, Stepper_Forward, 10000);
+    // int32_t y_Original = red_y_stepper_motor_handle->Read_Current_Position(red_y_stepper_motor_handle);
+    // App_Printf("red_x_stepper_motor_handle->current_position:%d\n", y_Original);
+    // int32_t x_Original = red_x_stepper_motor_handle->Read_Current_Position(red_x_stepper_motor_handle);
+    // App_Printf("red_y_stepper_motor_handle->current_position:%d\n", x_Original);
+
+    // while(1)
+    // {
+    //     red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Forward, 10);
+    //     Delayms(10);
+    // }
+
     // while(1)
     // {
     //     Delayms(1000);
     // }
-    Quadrangle_Init(&quadrangle_handle);
+    quadrangle_handle = Quadrangle_Init();
 
     // pid初始化
-    PID_Initialize(X_PID_handle, 0.5, 0.1, 0.1, 0, 100, -100);
-    PID_Initialize(Y_PID_handle, 0.5, 0.1, 0.1, 0, 100, -100);
+    PID_Initialize(X_PID_handle, 6, 0., 0., 0, 100, -100);
+    PID_Initialize(Y_PID_handle, 2, 0., 0., 0, 100, -100);
 }
 
 /***********************************************************************
@@ -524,20 +686,23 @@ static void BSP_Init(void)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
     delay_init(168);
     bsp_InitKey();
-	Delayms(1000);
-	OLED_Init();
-	
+    Delayms(1000);
+    OLED_Init();
+
     Init_USART1_All(); //*调试信息输出
     Init_USART2_All(); //*USART2 x_stepper_motor
     Init_UART4_All();  //*USART4 y_stepper_motor
     Init_USART3_All();
     Init_UART5_All(); //*USART5 upper_computer
 
+    App_Printf("\nkey state:%d\n", (GPIOB->IDR & GPIO_Pin_15));
+
     LED_GPIO_Config();
-	Delayms(1);
-    
+    Buzzer_ONE();
+    Delayms(1);
 
     GPIO_SetBits(GPIOE, GPIO_Pin_1);
+    GPIO_SetBits(GPIOB, GPIO_Pin_14);
 }
 
 ///********************************END OF FILE****************************/

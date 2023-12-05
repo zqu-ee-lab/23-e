@@ -38,6 +38,7 @@ extern int32_t y_target;
 #define GAME_OVER (1 << 0)
 #define GOT_QUADRANGLE (1 << 1)
 #define GOT_DOT_RED (1 << 2)
+#define GOT_DOT_GREEN (1 << 3)
 
 
 /**

@@ -317,6 +317,7 @@ int BUFF_pop_with_check_by_Protocol(struct Buff *BUFF, const char* head, int hea
 		if (data_position + data_len*data_size/8 > BUFF->buffer_used)
 		{
 			// std::cout << "Can not find the data in the buffer" << std::endl;
+			
 			return -1;
 		}
 		else

@@ -15,12 +15,12 @@ struct quadrangle_t
     struct dot_t dots[4];
     struct dot_t dots_on_lines[4][DOT_NUM];
 
-    struct quadrangle_t* (*init)(struct quadrangle_t **this_address);
     void (*Sort)(struct quadrangle_t *this);
     void (*GetDotsOnLines)(struct quadrangle_t *this);
+    void (*unInit)(struct quadrangle_t *this);
 };
 
-struct quadrangle_t* Quadrangle_Init(struct quadrangle_t **this_address);
+struct quadrangle_t *Quadrangle_Init();
 
 struct quadrangle_t * Quadrangle_Init_With_Dots(struct dot_t *dots);
 

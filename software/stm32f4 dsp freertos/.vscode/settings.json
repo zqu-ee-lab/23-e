@@ -14,6 +14,8 @@
         "steeper.h": "c",
         "stepper.h": "c",
         "pid.h": "c",
-        "quadrangle.h": "c"
+        "quadrangle.h": "c",
+        "delay.h": "c",
+        "limits.h": "c"
     }
 }

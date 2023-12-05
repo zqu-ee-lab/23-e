@@ -3,6 +3,7 @@
 
 #include "stdbool.h"
 #include "stm32f4xx.h"                  // Device header
+#include "buffer.h"
 
 enum Stepper_Direction_t
 {
@@ -13,22 +14,24 @@ enum Stepper_Direction_t
 enum Stepper_Check_Way_t
 {
   Stepper_Check_Way_XOR = 0x00,
-  Stepper_Check_Way_0X68 = 0x01
+  Stepper_Check_Way_0X6B = 0x01
 };
 
-struct Steeper_t * Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address);
+struct Steeper_t * Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF);
 
 struct Steeper_t
 {
   USART_TypeDef *pUSARTx;
   uint8_t address;
+  struct Buff *BUFF;
   uint8_t acceleration;
   uint8_t period;
   enum Stepper_Check_Way_t check_way;
 
-  struct Steeper_t * (*Init)(USART_TypeDef *pUSARTx, uint8_t address);
+  struct Steeper_t * (*Init)(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF);
   void (*unInit)(struct Steeper_t *this);
   void (*Send_Instruction)(struct Steeper_t *this, uint8_t *data, uint32_t dataLen);
+  int32_t (*Read_Current_Position)(struct Steeper_t *this);
   void (*Achieve_Distance)(struct Steeper_t* this, enum Stepper_Direction_t direction, uint32_t distance);
 };
 

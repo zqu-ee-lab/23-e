@@ -1177,7 +1177,7 @@ void Usart_SendByte(USART_TypeDef *pUSARTx, uint8_t ch)
         ;
 }
 /****************** 发送8位的数组 ************************/
-void Usart_SendArray(USART_TypeDef *pUSARTx, uint8_t *array, uint16_t num)
+void Usart_SendArray(USART_TypeDef *pUSARTx, const uint8_t *array, uint16_t num)
 {
     uint8_t i;
 
