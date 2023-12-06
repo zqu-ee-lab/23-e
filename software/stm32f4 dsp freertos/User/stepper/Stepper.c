@@ -11,7 +11,7 @@ void Stepper_Send_Instruction(struct Steeper_t *this, uint8_t *data, uint32_t da
 
 void Stepper_Achieve_Distance(struct Steeper_t *this, enum Stepper_Direction_t direction, uint32_t distance)
 {
-    int16_t speed = 150;
+    int16_t speed = 30;
     // calculate speed according to the period
 
     uint8_t data[13] = {0};
@@ -82,8 +82,8 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
         return 0;
     }
 
-    this->Send_Instruction(this, data, 6);
-    Delayms(10); // wait for the response
+    this->Send_Instruction(this, data, 3);
+    Delayms(500); // wait for the response
 
     int32_t current_position = 0;
     uint8_t data_res[5] = {0};

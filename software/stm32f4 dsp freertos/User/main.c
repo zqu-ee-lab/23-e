@@ -92,6 +92,8 @@
 #include "software_callback_function.h"
 #include "SysInfoTest.h"
 #include "my_math.h"
+#include "oled_draw.h"
+#include "oled_buffer.h"
 
 /**************************** 任务句柄 ********************************/
 /*
@@ -124,14 +126,23 @@ struct quadrangle_t *quadrangle_handle = NULL;
 struct dot_t dot_red;
 struct dot_t dot_green;
 
-struct dot_t pencil_line[4];
+struct dot_t pencil_line[4] = {
+    {.x = 19, .y = 271},
+    {.x = 27, .y = 21},
+    {.x = 285, .y = 271},
+    {.x = 278, .y = 21},
+};
 
 struct dot_t *dot_red_handle = &dot_red;
 struct dot_t *dot_green_handle = &dot_green;
 
 struct PID X_PID;
 struct PID Y_PID;
+struct PID ANGLE_PID;
+struct PID DISTANCE_PID;
 
+struct PID *DISTANCE_PID_handle = &DISTANCE_PID;
+struct PID *ANGLE_PID_handle = &ANGLE_PID;
 struct PID *X_PID_handle = &X_PID;
 struct PID *Y_PID_handle = &Y_PID;
 
@@ -143,10 +154,10 @@ struct PID *Y_PID_handle = &Y_PID;
 static void Return_The_Original_Point(void *pvParameters);
 static void analyse_data(void);
 static void Follow_By_Quadrangle(void *pvParameters);
-static void AppTaskCreate(void);               /* 用于创建任务 */
-static void Task__TWO(void *pvParameters);     /* Test_Task任务实现 */
-static void OLED_SHOW(void *pvParameters);     /* Test_Task任务实现 */
-static void KEY_SCAN(void *pvParameters);      /* Test_Task任务实现 */
+static void AppTaskCreate(void);           /* 用于创建任务 */
+static void Task__TWO(void *pvParameters); /* Test_Task任务实现 */
+static void OLED_SHOW(void *pvParameters); /* Test_Task任务实现 */
+static void KEY_SCAN(void *pvParameters);  /* Test_Task任务实现 */
 static void Task_schedule(void *pvParameters); /* 任务调度任务实现 */
 static void BSP_Init(void);                    /* 用于初始化板载相关资源 */
 static void USER_Init(void);
@@ -353,10 +364,14 @@ static void analyse_data(void)
  */
 static void OLED_SHOW(void *pvParameters)
 {
+    char buff[20];
+    
     while (1)
     {
-
-        vTaskDelay(1000);
+        sprintf(buff, "task:");
+        DrawString(0, 0, buff);
+        UpdateScreenDisplay();
+        vTaskDelay(100);
     }
 }
 
@@ -496,7 +511,7 @@ static void Task_schedule(void *pvParameters)
 static void Follow_By_Quadrangle(void *pvParameters)
 {
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(50); // 10ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(25); // 10ms
     xLastWakeTime = xTaskGetTickCount();
 
     static int which_line = 0;
@@ -507,6 +522,8 @@ static void Follow_By_Quadrangle(void *pvParameters)
     static int y_error = 0;
     static int x_target = 0;
     static int y_target = 0;
+
+    static int arrive_index = 0;
 
     for (;;)
     {
@@ -519,46 +536,51 @@ static void Follow_By_Quadrangle(void *pvParameters)
 
         aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
         // 1. get error
-        x_error = -(dot_red.x - aim_dot.x);
-        y_error = -(dot_red.y - aim_dot.y);
+        x_error = (dot_red.x - aim_dot.x);
+        y_error = (dot_red.y - aim_dot.y);
 
         // 2. update the aim dot
-        if ((abs(x_error) < 4) && (abs(y_error) < 4))
+        if ((abs(x_error) < 5) && (abs(y_error) < 5))
         {
-            which_dot_on_line++;
-            if (which_dot_on_line == DOT_NUM)
-
+            arrive_index++;
+            if (arrive_index > 10)
             {
-                which_dot_on_line = 0;
-                which_line++;
-                if (which_line == 4)
+                arrive_index = 0;
+                which_dot_on_line++;
+                if (which_dot_on_line == DOT_NUM)
+
                 {
-                    which_line = 0;
-                    SET_EVENT(GAME_OVER);
+                    which_dot_on_line = 0;
+                    which_line++;
+                    if (which_line == 4)
+                    {
+                        which_line = 0;
+                        SET_EVENT(GAME_OVER);
 
-                    // the delay in here is used for waiting linux upper got the instruction that the task is over
-                    vTaskDelay(100);
-                    CLEAR_EVENT(GOT_DOT_RED);
-                    CLEAR_EVENT(GOT_DOT_GREEN);
-                    CLEAR_EVENT(GOT_QUADRANGLE);
-                    goto stop_this_task;
+                        // the delay in here is used for waiting linux upper got the instruction that the task is over
+                        vTaskDelay(100);
+                        CLEAR_EVENT(GOT_DOT_RED);
+                        CLEAR_EVENT(GOT_DOT_GREEN);
+                        CLEAR_EVENT(GOT_QUADRANGLE);
+                        goto stop_this_task;
+                    }
                 }
-            }
-            aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+                aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
 
-            // get the error again
-            x_error = -(dot_red.x - aim_dot.x);
-            y_error = -(dot_red.y - aim_dot.y);
+                // get the error again
+                x_error = (dot_red.x - aim_dot.x);
+                y_error = (dot_red.y - aim_dot.y);
+            }
         }
 
         // 3. calculate the target position by PID
-        const int16_t X_Max = 10;
-        const int16_t Y_Max = 10;
-        App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
+        const int16_t X_Max = 20;
+        const int16_t Y_Max = 20;
         x_target = PID_Realize(X_PID_handle, x_error);
         y_target = PID_Realize(Y_PID_handle, y_error);
-        VAL_LIMIT(x_target, -X_Max, X_Max);
-        VAL_LIMIT(y_target, -Y_Max, Y_Max);
+        // VAL_LIMIT(x_target, -X_Max, X_Max);
+        // VAL_LIMIT(y_target, -Y_Max, Y_Max);
+        App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
 
         // 4. set the target position
         red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
@@ -568,9 +590,10 @@ static void Follow_By_Quadrangle(void *pvParameters)
     }
 }
 
+
 static void Return_The_Original_Point(void *pvParameters)
 {
-    const struct dot_t original_point = {0, 0}; // !the original point need to be set
+    const struct dot_t original_point = {152, 140}; // !the original point need to be set
 
     static int x_error = 0;
     static int y_error = 0;
@@ -581,7 +604,7 @@ static void Return_The_Original_Point(void *pvParameters)
     static int arrived_times = 0;
 
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(50); // 50ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
@@ -594,15 +617,15 @@ static void Return_The_Original_Point(void *pvParameters)
         }
 
         // 1. get error
-        x_error = -(dot_red.x - original_point.x);
-        y_error = -(dot_red.y - original_point.y);
+        x_error = (dot_red.x - original_point.x);
+        y_error = (dot_red.y - original_point.y);
 
         // 2. judge whether the target position is reached
-        if ((abs(x_error) < 2) && (abs(y_error) < 2))
+        if ((abs(x_error) < 4) && (abs(y_error) < 4))
         {
             // stop the timer
             arrived_times++;
-            if (arrived_times == 3)
+            if (arrived_times == 20)
             {
                 arrived_times = 0;
                 SET_EVENT(GAME_OVER);
@@ -626,8 +649,8 @@ static void Return_The_Original_Point(void *pvParameters)
         VAL_LIMIT(y_PID_output_local, -Y_Max, Y_Max);
 
         // 4. set the target position
-        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
-        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_target > 0) ? y_target : -y_target);
+        red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_PID_output_local > 0) ? x_PID_output_local : -x_PID_output_local);
+        red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_PID_output_local > 0) ? y_PID_output_local : -y_PID_output_local);
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
@@ -646,11 +669,6 @@ static void USER_Init(void)
     red_x_stepper_motor_handle = Stepper_Init(USART2, 0x01, U2_buffer_handle);
     red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02, U4_buffer_handle);
 
-    // int32_t y_Original = red_y_stepper_motor_handle->Read_Current_Position(red_y_stepper_motor_handle);
-    // App_Printf("red_x_stepper_motor_handle->current_position:%d\n", y_Original);
-    // int32_t x_Original = red_x_stepper_motor_handle->Read_Current_Position(red_x_stepper_motor_handle);
-    // App_Printf("red_y_stepper_motor_handle->current_position:%d\n", x_Original);
-
     // while(1)
     // {
     //     red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Forward, 10);
@@ -664,8 +682,10 @@ static void USER_Init(void)
     quadrangle_handle = Quadrangle_Init();
 
     // pid初始化
-    PID_Initialize(X_PID_handle, 6, 0., 0., 0, 100, -100);
-    PID_Initialize(Y_PID_handle, 2, 0., 0., 0, 100, -100);
+    PID_Initialize(X_PID_handle, .4, 0., 0., 0, 0, -0);
+    PID_Initialize(Y_PID_handle, .4, 0., 0., 0, 0, -0);
+    PID_Initialize(ANGLE_PID_handle, .05, 0., 0., 0, 0, -0);
+    PID_Initialize(DISTANCE_PID_handle, 2, 0.4, 0., 0, 0, -0);
 }
 
 /***********************************************************************

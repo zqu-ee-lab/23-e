@@ -51,6 +51,22 @@ void Quadrangle_Sort(struct quadrangle_t *this)
         }
     }
 
+    // the second dot is offset outwards, so move it inwards base on the fourth dot
+    float32_t dx = this->dots[1].x - this->dots[3].x;
+    if (dx == 0)
+    {
+        dx = .0001f;
+    }
+    float32_t dy = this->dots[1].y - this->dots[3].y;
+    if (dy == 0)
+    {
+        dy = .0001f;
+    }
+    float32_t k_1_3 = dy / dx;
+    this->dots[1].y = k_1_3 * dx * .98 + this->dots[3].y;
+    this->dots[1].x = dy / k_1_3 * .98 + this->dots[3].x;
+
+
     // the dots are sorted
     return;
 }
@@ -60,12 +76,13 @@ void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
     // calculate the dots on the lines between the dots
     for (int i = 0; i < 4; i++)
     {
-        const int in_dot_num = DOT_NUM;
+        const int in_dot_num = DOT_NUM-1;
         for (int j = 0; j < in_dot_num; j++)
         {
             this->dots_on_lines[i][j].x = (-this->dots[i].x + this->dots[(i + 1) % 4].x) / in_dot_num * j + this->dots[i].x;
             this->dots_on_lines[i][j].y = (-this->dots[i].y + this->dots[(i + 1) % 4].y) / in_dot_num * j + this->dots[i].y;
         }
+        this->dots_on_lines[i][in_dot_num] = this->dots[(i + 1) % 4];
     }
 }
 
