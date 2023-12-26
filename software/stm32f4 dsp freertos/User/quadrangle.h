@@ -8,7 +8,7 @@ struct dot_t
     int16_t y;
 };
 
-#define DOT_NUM 3
+#define DOT_NUM 4
 
 struct quadrangle_t
 {
@@ -18,10 +18,11 @@ struct quadrangle_t
     void (*Sort)(struct quadrangle_t *this);
     void (*GetDotsOnLines)(struct quadrangle_t *this);
     void (*unInit)(struct quadrangle_t *this);
+    void (*Equal_Scaling)(struct quadrangle_t *this, float32_t scale);
 };
 
 struct quadrangle_t *Quadrangle_Init();
 
-struct quadrangle_t * Quadrangle_Init_With_Dots(struct dot_t *dots);
+struct quadrangle_t *Quadrangle_Init_With_Dots(struct dot_t *dots);
 
 #endif // QUADRANGLE_H

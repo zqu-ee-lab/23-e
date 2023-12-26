@@ -17,6 +17,11 @@ void DrawNum(unsigned char x,unsigned char y,unsigned int num,unsigned char len)
 //void OLED_ShowCHinese(uint8_t x,uint8_t y,uint8_t *cn);
 void DrawPicture(int x, int y, int high, int width, const unsigned char *p);
 
+// this is the size of one char
+// 5*8  :2
+// 6*8  :1
+// 8*16 :0
+#define sizeofonechar 1
 
 
 #endif

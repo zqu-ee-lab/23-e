@@ -86,6 +86,27 @@ void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
     }
 }
 
+void Quadrangle_Equal_Scaling(struct quadrangle_t *this, float32_t scale)
+{
+    // calculate the center dot
+    double center_x = 0, center_y = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        center_x += this->dots[i].x;
+        center_y += this->dots[i].y;
+    }
+    center_x /= 4;
+    center_y /= 4;
+
+    // scale the dots
+    for (int i = 0; i < 4; i++)
+    {
+        this->dots[i].x = (this->dots[i].x - center_x) * scale + center_x;
+        this->dots[i].y = (this->dots[i].y - center_y) * scale + center_y;
+    }
+
+}
+
 void Quadrangle_unInit(struct quadrangle_t *this)
 {
     vPortFree(this);
@@ -104,6 +125,7 @@ struct quadrangle_t *Quadrangle_Init()
     this->Sort = Quadrangle_Sort;
     this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
     this->unInit = Quadrangle_unInit;
+    this->Equal_Scaling = Quadrangle_Equal_Scaling;
 
     return this;
 }

@@ -15,7 +15,7 @@
 #ifndef __BSP_KEY_H
 #define __BSP_KEY_H
 
-#define KEY_COUNT    5	   					/* 按键个数, 8个独立建 + 2个组合键 */
+#define KEY_COUNT    5	   					/* 按键个数, 4个独立建 + 2个组合键 */
 
 /* 根据应用程序的功能重命名按键宏 */
 #define KEY_DOWN_K1		KEY_1_DOWN
@@ -87,7 +87,7 @@ typedef struct
 	/* 下面是一个函数指针，指向判断按键手否按下的函数 */
 	uint8_t (*IsKeyDownFunc)(void); /* 按键按下的判断函数,1表示按下 */
 
-	uint8_t  Count;			/* 滤波器计数器 */
+	uint16_t  Count;			/* 滤波器计数器 */
 	uint16_t LongCount;		/* 长按计数器 */
 	uint16_t LongTime;		/* 按键按下持续时间, 0表示不检测长按 */
 	uint16_t UpTime;		/* 按键弹起时间 */

@@ -40,6 +40,8 @@ extern int32_t y_target;
 #define GOT_DOT_RED (1 << 2)
 #define GOT_DOT_GREEN (1 << 3)
 
+#define CALIBRATING (1 << 4)
+
 
 /**
  * those following marcos are used to define the specific key bit

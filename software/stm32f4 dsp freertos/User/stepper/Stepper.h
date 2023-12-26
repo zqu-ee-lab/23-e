@@ -17,6 +17,12 @@ enum Stepper_Check_Way_t
   Stepper_Check_Way_0X6B = 0x01
 };
 
+enum Stepper_FOC_Version_t
+{
+  Stepper_FOC_Version_4_2 = 0x01,
+  Stepper_FOC_Version_5_0 = 0x02
+};
+
 struct Steeper_t * Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF);
 
 struct Steeper_t
@@ -27,6 +33,7 @@ struct Steeper_t
   uint8_t acceleration;
   uint8_t period;
   enum Stepper_Check_Way_t check_way;
+  enum Stepper_FOC_Version_t FOC_VERSION;
 
   struct Steeper_t * (*Init)(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF);
   void (*unInit)(struct Steeper_t *this);

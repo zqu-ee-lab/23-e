@@ -29,12 +29,13 @@
 #include <stdlib.h>
 #include "stm32f4xx.h"
 #include "arm_math.h"
+#include "FreeRTOS.h"
 
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
-#ifdef _CMSIS_OS_H
+#ifdef INC_FREERTOS_H
 #define user_malloc pvPortMalloc
 #else
 #define user_malloc malloc

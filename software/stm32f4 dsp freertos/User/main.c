@@ -69,27 +69,20 @@
 #include "bsp_led.h"
 #include "usart.h"
 #include "delay.h"
-#include "PWM.h"
-#include "Driver.h"
-#include "software_usart.h"
-#include "Software_iic.h"
 #include "buffer.h"
 #include "PID.h"
 #include "stdio.h"
 #include "OLED.h"
-#include "VL53.h"
 #include "sys.h"
 #include "key.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "limits.h"
 #include "encoder.h"
 
 // user header file
 #include "quadrangle.h"
 #include "Stepper.h"
-#include "software_callback_function.h"
 #include "SysInfoTest.h"
 #include "my_math.h"
 #include "oled_draw.h"
@@ -102,6 +95,8 @@
  * 这个句柄可以为NULL。
  */
 
+#define pulse_per_pixel .12
+
 QueueHandle_t Task_Number_Handle = NULL;
 
 static TaskHandle_t analyse_data_Handle = NULL;  //+解析数据定时器句柄
@@ -111,6 +106,7 @@ static TaskHandle_t KEY_SCAN_Handle = NULL;      //+KEY_SCAN句柄
 static TaskHandle_t Task_schedule_Handle = NULL; //+SysInfoTestSent句柄
 static TaskHandle_t Follow_By_Quadrangle_Handle = NULL;
 static TaskHandle_t Return_The_Original_Point_Handle = NULL;
+static TaskHandle_t Follow_Red_dot_Handle = NULL;
 
 EventGroupHandle_t Group_One_Handle = NULL; //+事件组句柄
 
@@ -138,13 +134,15 @@ struct dot_t *dot_green_handle = &dot_green;
 
 struct PID X_PID;
 struct PID Y_PID;
-struct PID ANGLE_PID;
-struct PID DISTANCE_PID;
 
-struct PID *DISTANCE_PID_handle = &DISTANCE_PID;
-struct PID *ANGLE_PID_handle = &ANGLE_PID;
 struct PID *X_PID_handle = &X_PID;
 struct PID *Y_PID_handle = &Y_PID;
+
+static float32_t Red_Dot_X_Estimated_Error = 0;
+static float32_t Red_Dot_Y_Estimated_Error = 0;
+
+static float32_t Green_Dot_X_Estimated_Error = 0;
+static float32_t Green_Dot_Y_Estimated_Error = 0;
 
 /*
 *************************************************************************
@@ -154,11 +152,12 @@ struct PID *Y_PID_handle = &Y_PID;
 static void Return_The_Original_Point(void *pvParameters);
 static void analyse_data(void);
 static void Follow_By_Quadrangle(void *pvParameters);
-static void AppTaskCreate(void);           /* 用于创建任务 */
-static void Task__TWO(void *pvParameters); /* Test_Task任务实现 */
-static void OLED_SHOW(void *pvParameters); /* Test_Task任务实现 */
-static void KEY_SCAN(void *pvParameters);  /* Test_Task任务实现 */
+static void AppTaskCreate(void);               /* 用于创建任务 */
+static void Task__TWO(void *pvParameters);     /* Test_Task任务实现 */
+static void OLED_SHOW(void *pvParameters);     /* Test_Task任务实现 */
+static void KEY_SCAN(void *pvParameters);      /* Test_Task任务实现 */
 static void Task_schedule(void *pvParameters); /* 任务调度任务实现 */
+static void Follow_Red_dot(void *pvParameters);
 static void BSP_Init(void);                    /* 用于初始化板载相关资源 */
 static void USER_Init(void);
 
@@ -242,7 +241,7 @@ static void AppTaskCreate(void)
                           (const char *)"analyse_data",
                           (uint16_t)256,                         /* 任务栈大小 */
                           (void *)NULL,                          /* 任务入口函数参数 */
-                          (UBaseType_t)9,                        /* 任务的优先级 */
+                          (UBaseType_t)7,                        /* 任务的优先级 */
                           (TaskHandle_t *)&analyse_data_Handle); /* 任务控制块指针 */
     if (xReturn == pdPASS)
         App_Printf("analyse_data任务创建成功\r\n");
@@ -250,7 +249,7 @@ static void AppTaskCreate(void)
                           (const char *)"Task_schedule",
                           (uint16_t)256,                          /* 任务栈大小 */
                           (void *)NULL,                           /* 任务入口函数参数 */
-                          (UBaseType_t)9,                         /* 任务的优先级 */
+                          (UBaseType_t)5,                         /* 任务的优先级 */
                           (TaskHandle_t *)&Task_schedule_Handle); /* 任务控制块指针 */
     if (xReturn == pdPASS)
         App_Printf("Task_schedule任务创建成功\r\n");
@@ -258,7 +257,7 @@ static void AppTaskCreate(void)
                           (const char *)"Follow_By_Quadrangle",
                           (uint16_t)256,                                 /* 任务栈大小 */
                           (void *)NULL,                                  /* 任务入口函数参数 */
-                          (UBaseType_t)9,                                /* 任务的优先级 */
+                          (UBaseType_t)4,                                /* 任务的优先级 */
                           (TaskHandle_t *)&Follow_By_Quadrangle_Handle); /* 任务控制块指针 */
     if (xReturn == pdPASS)
         App_Printf("Follow_By_Quadrangle任务创建成功\r\n");
@@ -266,20 +265,18 @@ static void AppTaskCreate(void)
                           (const char *)"Return_The_Original_Point",
                           (uint16_t)256,                                      /* 任务栈大小 */
                           (void *)NULL,                                       /* 任务入口函数参数 */
-                          (UBaseType_t)9,                                     /* 任务的优先级 */
+                          (UBaseType_t)4,                                     /* 任务的优先级 */
                           (TaskHandle_t *)&Return_The_Original_Point_Handle); /* 任务控制块指针 */
     if (xReturn == pdPASS)
         App_Printf("Return_The_Original_Point任务创建成功\r\n");
-
-    sendto_Upper_Handle = xTimerCreate((const char *)"sendto_Upper",
-                                       (TickType_t)40,                         /* 定时器周期 1000(tick) */
-                                       (UBaseType_t)pdTRUE,                    /* 周期模式 */
-                                       (void *)3,                              /* 为每个计时器分配一个索引的唯一ID */
-                                       (TimerCallbackFunction_t)sendto_Upper); //! 回调函数名
-
-    xTimerStop(sendto_Upper_Handle, 1);
-
-    // xTimerStart(sendto_Upper_Handle, 0); //! 发送数据到上位机定时器
+    xReturn = xTaskCreate((TaskFunction_t)Follow_Red_dot,
+                          (const char *)"Follow_Red_dot",
+                          (uint16_t)256,                              /* 任务栈大小 */
+                          (void *)NULL,                               /* 任务入口函数参数 */
+                          (UBaseType_t)4,                             /* 任务的优先级 */
+                          (TaskHandle_t *)&Follow_Red_dot_Handle); /* 任务控制块指针 */
+    if (xReturn == pdPASS)
+        App_Printf("Follow_Red_dot任务创建成功\r\n");
 
     Task_Number_Handle = xQueueCreate(1, 1); // 开始解析数据
     Group_One_Handle = xEventGroupCreate();
@@ -288,7 +285,7 @@ static void AppTaskCreate(void)
     // 挂机任务，等待选择任务
     vTaskSuspend(Follow_By_Quadrangle_Handle);
     vTaskSuspend(Return_The_Original_Point_Handle);
-    // vTaskResume(analyse_data_Handle);
+    vTaskSuspend(Follow_Red_dot_Handle);
     // vTaskSuspend(Task__TWO_Handle);
     vTaskDelete(AppTaskCreate_Handle); // 删除AppTaskCreate任务
 
@@ -322,6 +319,7 @@ static void analyse_data(void)
         {
             App_Printf("get quadrangle data\r\n");
             quadrangle_local_handle->Sort(quadrangle_local_handle);
+            quadrangle_local_handle->Equal_Scaling(quadrangle_local_handle, .95);
             quadrangle_local_handle->GetDotsOnLines(quadrangle_local_handle);
             memcpy(quadrangle_handle, quadrangle_local_handle, sizeof(struct quadrangle_t));
             App_Printf("quadrangle data is:\n%d %d \n%d %d\n%d %d \n%d %d\n", quadrangle_handle->dots[0].x, quadrangle_handle->dots[0].y,
@@ -337,6 +335,8 @@ static void analyse_data(void)
             if ((dot_red_local.x) + (dot_red_local.y))
             {
                 memcpy(&dot_red, &dot_red_local, sizeof(struct dot_t));
+                Red_Dot_X_Estimated_Error = 0;
+                Red_Dot_Y_Estimated_Error = 0;
                 SET_EVENT(GOT_DOT_RED);
             }
         }
@@ -346,6 +346,8 @@ static void analyse_data(void)
         {
             App_Printf("get green laser data\r\n");
             memcpy(&dot_green, &dot_green_local, sizeof(struct dot_t));
+            Green_Dot_X_Estimated_Error = 0;
+            Green_Dot_Y_Estimated_Error = 0;
             SET_EVENT(GOT_DOT_GREEN);
         }
 
@@ -365,7 +367,7 @@ static void analyse_data(void)
 static void OLED_SHOW(void *pvParameters)
 {
     char buff[20];
-    
+
     while (1)
     {
         sprintf(buff, "task:");
@@ -385,7 +387,6 @@ static void KEY_SCAN(void *parameter)
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
     xLastWakeTime = xTaskGetTickCount();
-    // char qrcode=0x07;
     while (1)
     {
         /* 按键扫描 */
@@ -511,7 +512,7 @@ static void Task_schedule(void *pvParameters)
 static void Follow_By_Quadrangle(void *pvParameters)
 {
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(25); // 10ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(40); // 10ms
     xLastWakeTime = xTaskGetTickCount();
 
     static int which_line = 0;
@@ -532,18 +533,33 @@ static void Follow_By_Quadrangle(void *pvParameters)
         {
         stop_this_task:
             vTaskSuspend(Follow_By_Quadrangle_Handle);
+            xLastWakeTime = xTaskGetTickCount();
         }
 
         aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
         // 1. get error
-        x_error = (dot_red.x - aim_dot.x);
-        y_error = (dot_red.y - aim_dot.y);
+        if (dot_red.x + dot_red.y == 0)
+        {
+            goto out;
+        }
+        x_error = ((dot_red.x + Red_Dot_X_Estimated_Error) - aim_dot.x);
+        y_error = ((dot_red.y + Red_Dot_Y_Estimated_Error) - aim_dot.y);
 
         // 2. update the aim dot
-        if ((abs(x_error) < 5) && (abs(y_error) < 5))
+        if (which_dot_on_line)
+        {
+            u16 end_point_error_spar = (dot_red.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) * (dot_red.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) +
+                                       (dot_red.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x) * (dot_red.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x);
+            if (end_point_error_spar < (y_error * y_error + x_error * x_error))
+            {
+                which_dot_on_line = DOT_NUM - 1;
+                aim_dot = (quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1]);
+            }
+        }
+        if ((abs(x_error) < 3) && (abs(y_error) < 3))
         {
             arrive_index++;
-            if (arrive_index > 10)
+            if (arrive_index > 5)
             {
                 arrive_index = 0;
                 which_dot_on_line++;
@@ -574,22 +590,23 @@ static void Follow_By_Quadrangle(void *pvParameters)
         }
 
         // 3. calculate the target position by PID
-        const int16_t X_Max = 20;
-        const int16_t Y_Max = 20;
         x_target = PID_Realize(X_PID_handle, x_error);
         y_target = PID_Realize(Y_PID_handle, y_error);
-        // VAL_LIMIT(x_target, -X_Max, X_Max);
-        // VAL_LIMIT(y_target, -Y_Max, Y_Max);
         App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
 
         // 4. set the target position
         red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
         red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_target > 0) ? y_target : -y_target);
 
+        // 5. estimate the red dot position
+        Red_Dot_X_Estimated_Error += x_target * pulse_per_pixel;
+        Red_Dot_Y_Estimated_Error += y_target * pulse_per_pixel;
+
+    out:;
+        CLEAR_EVENT(GOT_DOT_RED);
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
-
 
 static void Return_The_Original_Point(void *pvParameters)
 {
@@ -604,7 +621,7 @@ static void Return_The_Original_Point(void *pvParameters)
     static int arrived_times = 0;
 
     TickType_t xLastWakeTime;
-    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
+    const TickType_t xFrequency = pdMS_TO_TICKS(25); // 10ms
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
@@ -613,12 +630,21 @@ static void Return_The_Original_Point(void *pvParameters)
         if (0)
         {
         stop_this_task:
+
+            SET_EVENT(GAME_OVER);
+
+            // the delay in here is used for waiting linux upper got the instruction that the task is over
+            vTaskDelay(100);
+            CLEAR_EVENT(GOT_DOT_RED);
+            CLEAR_EVENT(GOT_DOT_GREEN);
+            CLEAR_EVENT(GOT_QUADRANGLE);
             vTaskSuspend(Return_The_Original_Point_Handle);
+            xLastWakeTime = xTaskGetTickCount();
         }
 
         // 1. get error
-        x_error = (dot_red.x - original_point.x);
-        y_error = (dot_red.y - original_point.y);
+        x_error = ((dot_red.x + Red_Dot_X_Estimated_Error) - original_point.x);
+        y_error = ((dot_red.y + Red_Dot_Y_Estimated_Error) - original_point.y);
 
         // 2. judge whether the target position is reached
         if ((abs(x_error) < 4) && (abs(y_error) < 4))
@@ -628,30 +654,60 @@ static void Return_The_Original_Point(void *pvParameters)
             if (arrived_times == 20)
             {
                 arrived_times = 0;
-                SET_EVENT(GAME_OVER);
-
-                // the delay in here is used for waiting linux upper got the instruction that the task is over
-                vTaskDelay(100);
-                CLEAR_EVENT(GOT_DOT_RED);
-                CLEAR_EVENT(GOT_DOT_GREEN);
-                CLEAR_EVENT(GOT_QUADRANGLE);
 
                 goto stop_this_task;
             }
         }
 
         // 3. calculate the target position by PID
-        const int16_t X_Max = 10;
-        const int16_t Y_Max = 10;
         x_PID_output_local = PID_Realize(X_PID_handle, x_error);
         y_PID_output_local = PID_Realize(Y_PID_handle, y_error);
-        VAL_LIMIT(x_PID_output_local, -X_Max, X_Max);
-        VAL_LIMIT(y_PID_output_local, -Y_Max, Y_Max);
 
         // 4. set the target position
         red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_PID_output_local > 0) ? x_PID_output_local : -x_PID_output_local);
         red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_PID_output_local > 0) ? y_PID_output_local : -y_PID_output_local);
 
+        // 5. estimate the red dot position
+        Red_Dot_X_Estimated_Error += x_PID_output_local * pulse_per_pixel;
+        Red_Dot_Y_Estimated_Error += y_PID_output_local * pulse_per_pixel;
+
+    out:;
+        CLEAR_EVENT(GOT_DOT_RED);
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+static void Follow_Red_dot(void *pvParameters)
+{
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
+    xLastWakeTime = xTaskGetTickCount();
+
+    static int x_error = 0;
+    static int y_error = 0;
+    static int x_target = 0;
+    static int y_target = 0;
+
+    for (;;)
+    {
+        // stop the task
+        if (0)
+        {
+        stop_this_task:
+            //vTaskSuspend(Follow_By_Quadrangle_Handle);
+            xLastWakeTime = xTaskGetTickCount();
+        }
+
+        // 1. get error
+
+        // 2. calculate the target position by PID
+
+        // 3. set the target position
+
+        // 4. estimate the green dot position
+
+    out:;
+        CLEAR_EVENT(GOT_DOT_GREEN);
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -669,6 +725,7 @@ static void USER_Init(void)
     red_x_stepper_motor_handle = Stepper_Init(USART2, 0x01, U2_buffer_handle);
     red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02, U4_buffer_handle);
 
+    //red_x_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Forward, 2500);
     // while(1)
     // {
     //     red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Forward, 10);
@@ -682,10 +739,8 @@ static void USER_Init(void)
     quadrangle_handle = Quadrangle_Init();
 
     // pid初始化
-    PID_Initialize(X_PID_handle, .4, 0., 0., 0, 0, -0);
-    PID_Initialize(Y_PID_handle, .4, 0., 0., 0, 0, -0);
-    PID_Initialize(ANGLE_PID_handle, .05, 0., 0., 0, 0, -0);
-    PID_Initialize(DISTANCE_PID_handle, 2, 0.4, 0., 0, 0, -0);
+    PID_Initialize(X_PID_handle, .8, 0., 0., 0, 0, -0);
+    PID_Initialize(Y_PID_handle, .8, 0., 0., 0, 0, -0);
 }
 
 /***********************************************************************
@@ -710,19 +765,15 @@ static void BSP_Init(void)
     OLED_Init();
 
     Init_USART1_All(); //*调试信息输出
-    Init_USART2_All(); //*USART2 x_stepper_motor
-    Init_UART4_All();  //*USART4 y_stepper_motor
+    Init_USART2_All(); //*USART2 red_dot_stepper_motor
+    Init_UART4_All();  //*USART4 green_dot_stepper_motor
     Init_USART3_All();
     Init_UART5_All(); //*USART5 upper_computer
 
-    App_Printf("\nkey state:%d\n", (GPIOB->IDR & GPIO_Pin_15));
-
-    LED_GPIO_Config();
     Buzzer_ONE();
     Delayms(1);
 
     GPIO_SetBits(GPIOE, GPIO_Pin_1);
-    GPIO_SetBits(GPIOB, GPIO_Pin_14);
 }
 
 ///********************************END OF FILE****************************/

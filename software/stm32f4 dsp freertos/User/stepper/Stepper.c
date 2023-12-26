@@ -14,46 +14,103 @@ void Stepper_Achieve_Distance(struct Steeper_t *this, enum Stepper_Direction_t d
     int16_t speed = 30;
     // calculate speed according to the period
 
-    uint8_t data[13] = {0};
-    data[0] = this->address;
-    data[1] = 0xFD; // Distance controlled instruction
-    data[2] = direction;
-
-    data[3] = speed >> 8;
-    data[4] = speed;
-
-    data[5] = this->acceleration;
-
-    data[6] = distance >> 24;
-    data[7] = distance >> 16;
-    data[8] = distance >> 8;
-    data[9] = distance;
-
-    data[10] = 0x00;
-    data[11] = 0x00; // multiple instructions
-
-    if (this->check_way == Stepper_Check_Way_XOR)
+    if (this->FOC_VERSION == Stepper_FOC_Version_5_0)
     {
-        uint8_t check = 0;
-        for (int i = 0; i < 12; i++)
+        uint8_t data[13] = {0};
+        data[0] = this->address;
+        data[1] = 0xFD; // Distance controlled instruction
+        data[2] = direction;
+
+        data[3] = speed >> 8;
+        data[4] = speed;
+
+        data[5] = this->acceleration;
+
+        data[6] = distance >> 24;
+        data[7] = distance >> 16;
+        data[8] = distance >> 8;
+        data[9] = distance;
+
+        data[10] = 0x00;
+        data[11] = 0x00; // multiple instructions
+
+        if (this->check_way == Stepper_Check_Way_XOR)
         {
-            check ^= data[i];
+            uint8_t check = 0;
+            for (int i = 0; i < 12; i++)
+            {
+                check ^= data[i];
+            }
+            data[12] = check;
         }
-        data[12] = check;
-    }
-    else if (this->check_way == Stepper_Check_Way_0X6B)
-    {
-        data[12] = 0x6B;
-    }
-    else
-    {
-        // error
-        App_Printf("Stepper_Achieve_Distance: check way error!\n");
+        else if (this->check_way == Stepper_Check_Way_0X6B)
+        {
+            data[12] = 0x6B;
+        }
+        else
+        {
+            // error
+            App_Printf("Stepper_Achieve_Distance: check way error!\n");
+            return;
+        }
+
+        this->Send_Instruction(this, data, 13);
         return;
     }
+    else if (this->FOC_VERSION == Stepper_FOC_Version_4_2)
+    {
+        uint8_t data[9] = {0};
 
-    this->Send_Instruction(this, data, 13);
-    return;
+        data[0] = this->address;
+        data[1] = 0xFD; // Distance controlled instruction
+
+        if (speed > 0x4FF)
+        {
+            speed = 0x4FF;
+        }
+        *(uint16_t *)(data + 2) = speed;
+        if (direction == Stepper_Forward)
+        {
+            data[2] |= 0x10;
+        }
+        else
+        {
+            data[2] &= 0x0F;
+        }
+
+        data[4] = this->acceleration;
+
+        if (distance > 0xFFFFFF)
+        {
+            distance = 0xFFFFFF;
+        }
+        data[5] = distance >> 16;
+        data[6] = distance >> 8;
+        data[7] = distance;
+
+        if (this->check_way == Stepper_Check_Way_XOR)
+        {
+            uint8_t check = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                check ^= data[i];
+            }
+            data[8] = check;
+        }
+        else if (this->check_way == Stepper_Check_Way_0X6B)
+        {
+            data[8] = 0x6B;
+        }
+        else
+        {
+            // error
+            App_Printf("Stepper_Achieve_Distance: check way error!\n");
+            return;
+        }
+
+        this->Send_Instruction(this, data, 9);
+        return;
+    }
 }
 
 int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
@@ -88,11 +145,11 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
     int32_t current_position = 0;
     uint8_t data_res[5] = {0};
     char head[2] = {this->address, 0x36};
-    if(BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5)==5)
+    if (BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5) == 5)
     {
         current_position = (data_res[1] << 24) | (data_res[2] << 16) | (data_res[3] << 8) | data_res[4];
         current_position = current_position / 65535 * 200 * 256;
-        current_position = data_res[0]?-current_position:current_position;
+        current_position = data_res[0] ? -current_position : current_position;
         return current_position;
     }
     else
@@ -100,7 +157,6 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
         App_Printf("Stepper_Read_Current_Position: pop error!\n");
         return 0;
     }
-
 
     return 0;
 }
@@ -124,9 +180,10 @@ struct Steeper_t *Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct B
     this->pUSARTx = pUSARTx;
     this->address = address;
     this->BUFF = BUFF;
-    this->acceleration = 0x00;               // default acceleration
-    this->period = 10;                       // unit : ms
-    this->check_way = Stepper_Check_Way_0X6B; // default check way
+    this->acceleration = 0x00;                   // default acceleration
+    this->period = 10;                           // unit : ms
+    this->check_way = Stepper_Check_Way_0X6B;    // default check way
+    this->FOC_VERSION = Stepper_FOC_Version_5_0; // default FOC version
 
     this->Init = Stepper_Init;
     this->unInit = Stepper_unInit;

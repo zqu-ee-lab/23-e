@@ -8,16 +8,14 @@
 /*引脚初始化*/
 void OLED_I2C_Init(void)
 {
-	GPIO_InitTypeDef GPIO_InitStructure;
+    GPIO_InitTypeDef GPIO_InitStructure;
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE);
-
 
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
     GPIO_InitStructure.GPIO_OType = GPIO_OType_OD;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3;
     GPIO_Init(GPIOE, &GPIO_InitStructure);
-    
 
     OLED_W_SCL(1);
     OLED_W_SDA(1);
@@ -32,9 +30,9 @@ void OLED_I2C_Start(void)
 {
     OLED_W_SDA(1);
     OLED_W_SCL(1);
-    //Delayus(1);
+    // Delayus(1);
     OLED_W_SDA(0);
-    //Delayus(1);
+    // Delayus(1);
     OLED_W_SCL(0);
 }
 
@@ -47,9 +45,9 @@ void OLED_I2C_Stop(void)
 {
     OLED_W_SDA(0);
     OLED_W_SCL(1);
-    //Delayus(1);
+    // Delayus(1);
     OLED_W_SDA(1);
-    //Delayus(1);
+    // Delayus(1);
 }
 
 /**
@@ -63,9 +61,9 @@ void OLED_I2C_SendByte(uint8_t Byte)
     for (i = 0; i < 8; i++)
     {
         OLED_W_SDA(Byte & (0x80 >> i));
-        //Delayus(1);
+        // Delayus(1);
         OLED_W_SCL(1);
-        //Delayus(1);
+        // Delayus(1);
         OLED_W_SCL(0);
     }
     OLED_W_SCL(1); // 额外的一个时钟，不处理应答信号
@@ -101,21 +99,21 @@ void OLED_WriteData(uint8_t Data)
 }
 
 /**
-  * @brief  OLED写多个数据
-  * @param  dat 要写入的数据数组
-  * @param  len 要写入的数据长度
-  * @retval 无
-  */
+ * @brief  OLED写多个数据
+ * @param  dat 要写入的数据数组
+ * @param  len 要写入的数据长度
+ * @retval 无
+ */
 static inline void OLED_WriteMultiData(const u8 *dat, u8 len)
 {
-	u8 i;
-	OLED_I2C_Start();		// 通信开始
-	OLED_I2C_SendByte(0X78);	// 写从机地址'0111 100' 读写符号'0'
-	OLED_I2C_SendByte(0X40);		// 根据参数选择写命令还是数据
-	for(i=0; i<len; i++)
-		OLED_I2C_SendByte(dat[i]);
-	//通信结束
-	OLED_I2C_Stop();
+    u8 i;
+    OLED_I2C_Start();        // 通信开始
+    OLED_I2C_SendByte(0X78); // 写从机地址'0111 100' 读写符号'0'
+    OLED_I2C_SendByte(0X40); // 根据参数选择写命令还是数据
+    for (i = 0; i < len; i++)
+        OLED_I2C_SendByte(dat[i]);
+    // 通信结束
+    OLED_I2C_Stop();
 }
 
 /**
@@ -132,37 +130,35 @@ void OLED_SetCursor(uint8_t Y, uint8_t X)
 }
 
 /**
-  * @brief  OLED清屏
-  * @param  无
-  * @retval 无
-  */
+ * @brief  OLED清屏
+ * @param  无
+ * @retval 无
+ */
 void OLED_Clear(void)
 {
-	u8 space[128]={0};
-	uint8_t j;
-	for (j = 0; j < 8; j++)
-	{
-		OLED_SetCursor(j, 0);
-		OLED_WriteMultiData(space,128);
-	}
+    u8 space[128] = {0};
+    uint8_t j;
+    for (j = 0; j < 8; j++)
+    {
+        OLED_SetCursor(j, 0);
+        OLED_WriteMultiData(space, 128);
+    }
 }
 
 /**
-* @brief  OLED显示缓冲区的图片
-  * @param  BMP 要显示的图片数组
-  * @retval 无
-  */
+ * @brief  OLED显示缓冲区的图片
+ * @param  BMP 要显示的图片数组
+ * @retval 无
+ */
 void OLED_FILL(const uint8_t BMP[8][128])
 {
-	uint8_t i;
+    uint8_t i = 0;
 
-	for (i = 0; i < 8; i++)
-	{
-		OLED_SetCursor(i, 0);
-
-		OLED_WriteMultiData(BMP[i], 128);
-	}
-
+    for (i = 0; i < 8; i++)
+    {
+        OLED_SetCursor(i, 0);
+        OLED_WriteMultiData(BMP[i], 128);
+    }
 }
 
 /**
@@ -313,7 +309,11 @@ void OLED_Init(void)
 {
     uint32_t i, j;
 
-    //Delayms(500);
+    for (i = 0; i < 1000; i++) // 上电延时
+    {
+        for (j = 0; j < 1000; j++)
+            ;
+    }
 
     OLED_I2C_Init(); // 端口初始化
 
