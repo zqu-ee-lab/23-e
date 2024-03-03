@@ -2,6 +2,10 @@
 #ifndef buffer__
 #define buffer__
 #include "stm32f4xx.h"
+#include "FreeRTOS.h"
+
+#define BUFF_MALLOC pvPortMalloc
+#define BUFF_FREE vPortFree
 
 #define IS_FULL 1 + 0xFF
 #define IS_EMPTY 2 + 0xFF
@@ -16,7 +20,7 @@
 extern struct Buff *U3_buffer_handle, *U2_buffer_handle, *Soft_Usart_handle, *U1_buffer_handle, *U4_buffer_handle, *U5_buffer_handle, *IIC_buff_handle;
 struct Buff
 {
-    u8 Data[BUFFER_SIZE];
+    u8* Data;
     int size;
     void *head_p;
     void *end_p;

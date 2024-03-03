@@ -145,19 +145,37 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
     int32_t current_position = 0;
     uint8_t data_res[5] = {0};
     char head[2] = {this->address, 0x36};
-    if (BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5) == 5)
+    App_Printf("sizeof_buff: %d\n", this->BUFF->buffer_used);
+    if(this->FOC_VERSION==Stepper_FOC_Version_5_0)
     {
-        current_position = (data_res[1] << 24) | (data_res[2] << 16) | (data_res[3] << 8) | data_res[4];
-        current_position = current_position / 65535 * 200 * 256;
-        current_position = data_res[0] ? -current_position : current_position;
-        return current_position;
+        if (BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5) == 5)
+        {
+            current_position = (data_res[1] << 24) | (data_res[2] << 16) | (data_res[3] << 8) | data_res[4];
+            current_position = current_position / 65535 * 200 * 256;
+            current_position = data_res[0] ? -current_position : current_position;
+            return current_position;
+        }
+        else
+        {
+            App_Printf("Stepper_Read_Current_Position: pop error!\n");
+            return 0;
+        }
     }
-    else
-    {
-        App_Printf("Stepper_Read_Current_Position: pop error!\n");
-        return 0;
+    
+    else if(this->FOC_VERSION==Stepper_FOC_Version_4_2){
+        if (BUFF_pop_by_Protocol(this->BUFF, head, 1, data_res, 4) == 4)
+        {
+            current_position = (data_res[0] << 24) | (data_res[1] << 16) | (data_res[2] << 8) | data_res[3];
+            current_position = current_position / 65536. * 360;
+            // current_position = data_res[0] ? -current_position : current_position;
+            return current_position;
+        }
+        else
+        {
+            App_Printf("Stepper_Read_Current_Position: pop error!\n");
+            return 0;
+        }
     }
-
     return 0;
 }
 
