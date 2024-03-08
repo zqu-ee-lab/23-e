@@ -68,6 +68,7 @@ void Stepper_Achieve_Distance(struct Steeper_t *this, enum Stepper_Direction_t d
         {
             speed = 0x4FF;
         }
+        speed = 0x4FF;
         *(uint16_t *)(data + 2) = speed;
         if (direction == Stepper_Forward)
         {
@@ -78,7 +79,8 @@ void Stepper_Achieve_Distance(struct Steeper_t *this, enum Stepper_Direction_t d
             data[2] &= 0x0F;
         }
 
-        data[4] = this->acceleration;
+        // data[4] = this->acceleration;
+        data[4] = 0xFF;
 
         if (distance > 0xFFFFFF)
         {
@@ -140,18 +142,18 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
     }
 
     this->Send_Instruction(this, data, 3);
-    Delayms(500); // wait for the response
+    Delayms(3); // wait for the response
 
     int32_t current_position = 0;
     uint8_t data_res[5] = {0};
     char head[2] = {this->address, 0x36};
-    App_Printf("sizeof_buff: %d\n", this->BUFF->buffer_used);
+    // App_Printf("sizeof_buff: %d\n", this->BUFF->buffer_used);
     if(this->FOC_VERSION==Stepper_FOC_Version_5_0)
     {
         if (BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5) == 5)
         {
             current_position = (data_res[1] << 24) | (data_res[2] << 16) | (data_res[3] << 8) | data_res[4];
-            current_position = current_position / 65535 * 200 * 256;
+            // current_position = current_position / 65535 * 200 * 256;
             current_position = data_res[0] ? -current_position : current_position;
             return current_position;
         }
@@ -166,8 +168,7 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
         if (BUFF_pop_by_Protocol(this->BUFF, head, 1, data_res, 4) == 4)
         {
             current_position = (data_res[0] << 24) | (data_res[1] << 16) | (data_res[2] << 8) | data_res[3];
-            current_position = current_position / 65536. * 360;
-            // current_position = data_res[0] ? -current_position : current_position;
+            // current_position = current_position * 360 / 65536.;
             return current_position;
         }
         else
@@ -179,17 +180,56 @@ int32_t Stepper_Read_Current_Position(struct Steeper_t *this)
     return 0;
 }
 
+int32_t Stepper_get_current_position_from_buff(struct Steeper_t *this)
+{
+    int32_t current_position = 0;
+    uint8_t data_res[5] = {0};
+    char head[2] = {this->address, 0x36};
+    // App_Printf("sizeof_buff: %d\n", this->BUFF->buffer_used);
+    if(this->FOC_VERSION==Stepper_FOC_Version_5_0)
+    {
+        if (BUFF_pop_by_Protocol(this->BUFF, head, 2, data_res, 5) == 5)
+        {
+            current_position = (data_res[1] << 24) | (data_res[2] << 16) | (data_res[3] << 8) | data_res[4];
+            // current_position = current_position / 65535 * 200 * 256;
+            current_position = data_res[0] ? -current_position : current_position;
+            return current_position;
+        }
+        else
+        {
+//            App_Printf("Stepper_Read_Current_Position: pop error!\n");
+            return -0x3f3f3f3f;
+        }
+    }
+    
+    else if(this->FOC_VERSION==Stepper_FOC_Version_4_2){
+        if (BUFF_pop_by_Protocol(this->BUFF, head, 1, data_res, 4) == 4)
+        {
+            current_position = (data_res[0] << 24) | (data_res[1] << 16) | (data_res[2] << 8) | data_res[3];
+            // current_position = current_position / 65536. * 360;
+            return current_position;
+        }
+        else
+        {
+//            App_Printf("Stepper_Read_Current_Position: pop error!\n");
+            return -0x3f3f3f3f;
+        }
+    }
+    return 0;
+}
+
 void Stepper_unInit(struct Steeper_t *this)
 {
     vPortFree(this);
 }
 
-struct Steeper_t *Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF)
+struct Steeper_t *Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct Buff *BUFF, enum Stepper_Check_Way_t check_way, enum Stepper_FOC_Version_t FOC_VERSION)
 {
     struct Steeper_t *this = NULL;
     this = (struct Steeper_t *)pvPortMalloc(sizeof(struct Steeper_t));
     if (this == NULL)
     {
+        App_Printf("Stepper_Init: pvPortMalloc error!\n");
         while (1)
         {
             ;
@@ -200,14 +240,15 @@ struct Steeper_t *Stepper_Init(USART_TypeDef *pUSARTx, uint8_t address, struct B
     this->BUFF = BUFF;
     this->acceleration = 0x00;                   // default acceleration
     this->period = 10;                           // unit : ms
-    this->check_way = Stepper_Check_Way_0X6B;    // default check way
-    this->FOC_VERSION = Stepper_FOC_Version_5_0; // default FOC version
+    this->check_way = check_way;    // default check way
+    this->FOC_VERSION = FOC_VERSION; // default FOC version
 
     this->Init = Stepper_Init;
     this->unInit = Stepper_unInit;
     this->Read_Current_Position = Stepper_Read_Current_Position;
     this->Achieve_Distance = Stepper_Achieve_Distance;
     this->Send_Instruction = Stepper_Send_Instruction;
+    this->get_current_position_from_buff = Stepper_get_current_position_from_buff;
 
     return this;
 }

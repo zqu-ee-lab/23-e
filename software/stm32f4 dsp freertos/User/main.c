@@ -95,7 +95,7 @@
  * 这个句柄可以为NULL。
  */
 
-#define pulse_per_pixel .12
+#define pulse_per_pixel 0.081
 
 QueueHandle_t Task_Number_Handle = NULL;
 
@@ -122,8 +122,10 @@ struct Steeper_t *green_y_stepper_motor_handle = NULL;
 
 struct quadrangle_t *quadrangle_handle = NULL;
 
-struct dot_t dot_red;
-struct dot_t dot_green;
+struct dot_t dot_red_from_other_camera = {0, 0};
+const struct dot_t dot_red_real = {.x = 337, .y = 241};
+// struct dot_t dot_green;
+const struct dot_t dot_green_real = {.x = 278, .y = 21};
 
 struct dot_t pencil_line[4] = {
 	{.x = 19, .y = 271},
@@ -132,14 +134,23 @@ struct dot_t pencil_line[4] = {
 	{.x = 278, .y = 21},
 };
 
-struct dot_t *dot_red_handle = &dot_red;
-struct dot_t *dot_green_handle = &dot_green;
+int pos_red_x_motor = 0;
+int pos_red_y_motor = 0;
+int pos_green_x_motor = 0;
+int pos_green_y_motor = 0;
+
+// struct dot_t *dot_red_handle = &dot_red_from_other_camera;
+// struct dot_t *dot_green_handle = &dot_green;
 
 struct PID X_PID;
 struct PID Y_PID;
+struct PID Green_X_PID;
+struct PID Green_Y_PID;
 
 struct PID *X_PID_handle = &X_PID;
 struct PID *Y_PID_handle = &Y_PID;
+struct PID *Green_X_PID_handle = &Green_X_PID;
+struct PID *Green_Y_PID_handle = &Green_Y_PID;
 
 static float32_t Red_Dot_X_Estimated_Error = 0;
 static float32_t Red_Dot_Y_Estimated_Error = 0;
@@ -302,16 +313,21 @@ static void AppTaskCreate(void)
 static void analyse_data(void)
 {
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms
+	const TickType_t xFrequency = pdMS_TO_TICKS(20); // 10ms
 	xLastWakeTime = xTaskGetTickCount();
 	const char head_red_laser[2] = {0xFE, 0xFE};
 	const char head_green_laser[2] = {0xFE, 0xFD};
 	const char head_quadrangle[2] = {0xFE, 0xFF};
 
+	static int pos_green_x_local = 0;
+	static int pos_green_y_local = 0;
+	static int pos_red_x_local = 0;
+	static int pos_red_y_local = 0;
 	struct quadrangle_t *quadrangle_local_handle = Quadrangle_Init();
 	struct dot_t dot_red_local;
 	struct dot_t dot_green_local;
-
+	bool get_qu = true;
+	char str[35];
 	for (;;)
 	{
 		/* code */
@@ -320,39 +336,94 @@ static void analyse_data(void)
 		// get the quadrangle data
 		if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_quadrangle, 2, quadrangle_local_handle->dots, 16, 1, 8) == 8)
 		{
-			App_Printf("get quadrangle data\r\n");
+			// App_Printf("get quadrangle data\r\n");
+			// DrawString(1, 0, "get_quadrangle");
 			quadrangle_local_handle->Sort(quadrangle_local_handle);
-			quadrangle_local_handle->Equal_Scaling(quadrangle_local_handle, .95);
-			quadrangle_local_handle->GetDotsOnLines(quadrangle_local_handle);
+			quadrangle_local_handle->Equal_Scaling(quadrangle_local_handle, .92);
+			// quadrangle_local_handle->GetDotsOnLines(quadrangle_local_handle);
 			memcpy(quadrangle_handle, quadrangle_local_handle, sizeof(struct quadrangle_t));
-			App_Printf("quadrangle data is:\n%d %d \n%d %d\n%d %d \n%d %d\n", quadrangle_handle->dots[0].x, quadrangle_handle->dots[0].y,
-					   quadrangle_handle->dots[1].x, quadrangle_handle->dots[1].y, quadrangle_handle->dots[2].x, quadrangle_handle->dots[2].y,
-					   quadrangle_handle->dots[3].x, quadrangle_handle->dots[3].y);
+			// App_Printf("quadrangle data is:\n%d %d \n%d %d\n%d %d \n%d %d\n", quadrangle_handle->dots[0].x, quadrangle_handle->dots[0].y,
+			// 		   quadrangle_handle->dots[1].x, quadrangle_handle->dots[1].y, quadrangle_handle->dots[2].x, quadrangle_handle->dots[2].y,
+			// 		   quadrangle_handle->dots[3].x, quadrangle_handle->dots[3].y);
+			Red_Dot_X_Estimated_Error = 0;
+			Red_Dot_Y_Estimated_Error = 0;
 			SET_EVENT(GOT_QUADRANGLE);
+		}
+		else
+		{
+			DrawString(1, 0, "               ");
 		}
 
 		// get the red laser dot
 		if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_red_laser, 2, &dot_red_local, 16, 1, 2) == 2)
 		{
-			// App_Printf("get laser data\r\n");
+			App_Printf("get laser data\r\n");
+			App_Printf("red dot is:%d %d\n", dot_red_local.x, dot_red_local.y);
 			if ((dot_red_local.x) + (dot_red_local.y))
 			{
-				memcpy(&dot_red, &dot_red_local, sizeof(struct dot_t));
-				Red_Dot_X_Estimated_Error = 0;
-				Red_Dot_Y_Estimated_Error = 0;
+				memcpy(&dot_red_from_other_camera, &dot_red_local, sizeof(struct dot_t));
+				Green_Dot_X_Estimated_Error = 0;
+				Green_Dot_Y_Estimated_Error = 0;
 				SET_EVENT(GOT_DOT_RED);
 			}
 		}
 
-		// get the green laser dot
-		if (BUFF_pop_with_check_by_Protocol(U5_buffer_handle, head_green_laser, 2, &dot_green_local, 16, 1, 2) == 2)
-		{
-			App_Printf("get green laser data\r\n");
-			memcpy(&dot_green, &dot_green_local, sizeof(struct dot_t));
-			Green_Dot_X_Estimated_Error = 0;
-			Green_Dot_Y_Estimated_Error = 0;
-			SET_EVENT(GOT_DOT_GREEN);
+		// get the position of motor
+		static uint8_t data_send_to_motor[3] = {0, 0x36, 0x6B};
+		data_send_to_motor[0] = red_x_stepper_motor_handle->address;
+		red_x_stepper_motor_handle->Send_Instruction(red_x_stepper_motor_handle, data_send_to_motor, 3);
+		data_send_to_motor[0] = red_y_stepper_motor_handle->address;
+		red_y_stepper_motor_handle->Send_Instruction(red_y_stepper_motor_handle, data_send_to_motor, 3);
+		data_send_to_motor[0] = green_x_stepper_motor_handle->address;
+		green_x_stepper_motor_handle->Send_Instruction(green_x_stepper_motor_handle, data_send_to_motor, 3);
+		data_send_to_motor[0] = green_y_stepper_motor_handle->address;
+		green_y_stepper_motor_handle->Send_Instruction(green_y_stepper_motor_handle, data_send_to_motor, 3);
+
+		pos_red_x_local = red_x_stepper_motor_handle->get_current_position_from_buff(red_x_stepper_motor_handle);
+		pos_red_y_local = red_y_stepper_motor_handle->get_current_position_from_buff(red_y_stepper_motor_handle);
+		pos_green_x_local = green_x_stepper_motor_handle->get_current_position_from_buff(green_x_stepper_motor_handle);
+		pos_green_y_local = green_y_stepper_motor_handle->get_current_position_from_buff(green_y_stepper_motor_handle);
+
+		if (pos_red_x_local != -0x3f3f3f3f){
+			pos_red_x_motor = (int)(pos_red_x_local * pulse_per_pixel);
+			sprintf(str,"red_x:%6d",pos_red_x_motor);
+			DrawString(4, 0, str);
 		}
+		else {
+			sprintf(str,"red_x:%6d",0);
+			DrawString(4, 0, str);
+		}
+		if (pos_red_y_local != -0x3f3f3f3f){
+			pos_red_y_motor = (int)(pos_red_y_local * pulse_per_pixel);
+			sprintf(str,"red_y:%6d",pos_red_y_motor);
+			DrawString(5, 0, str);
+		}
+		else {
+			sprintf(str,"red_y:%6d",0);
+			DrawString(5, 0, str);
+		}
+			
+		// else if(get_qu==true) App_Printf("can't get motor's pos\n"),get_qu=false;
+		if (pos_green_x_local != -0x3f3f3f3f){
+			pos_green_x_motor = (int)(pos_green_x_local * pulse_per_pixel), get_qu = true;
+			sprintf(str,"green_x:%6d",pos_green_x_motor);
+			DrawString(6, 0, str);
+		}
+		else {
+			sprintf(str,"green_x:%6d",0);
+			DrawString(6, 0, str);
+		}
+		// else if(get_qu==true) App_Printf("can't get motor's pos\n"),get_qu=false;
+		if (pos_green_y_local != -0x3f3f3f3f){
+			pos_green_y_motor = (int)(pos_green_y_local * pulse_per_pixel), get_qu = true;
+			sprintf(str,"green_t:%6d",pos_green_y_motor);
+			DrawString(7, 0, str);
+		}
+		else {
+			sprintf(str,"green_t:%6d",0);
+			DrawString(7, 0, str);
+		}
+		// else if(get_qu==true) App_Printf("can't get motor's pos\n"),get_qu=false;
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 	}
@@ -373,8 +444,11 @@ static void OLED_SHOW(void *pvParameters)
 
 	while (1)
 	{
-		sprintf(buff, "task:");
+		sprintf(buff, "task");
 		DrawString(0, 0, buff);
+		//		if(CHECK_EVENT(GOT_QUADRANGLE)){
+		//			DrawString(1, 0, "get_quadrangle");
+		//		}
 		UpdateScreenDisplay();
 		vTaskDelay(100);
 	}
@@ -415,79 +489,61 @@ static void Task_schedule(void *pvParameters)
 			switch (Key_Value)
 			{
 			case task1:
+				DrawString(0, 9, "1");
 				// 开始让激光回到原点
 				App_Printf("task1\r\n");
-				do
-				{
-					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
-					vTaskDelay(100);
-				} while (!CHECK_EVENT(GOT_DOT_RED));
 				CLEAR_EVENT(GAME_OVER);
 				vTaskResume(Return_The_Original_Point_Handle);
 				break;
 			case task2:
 				// 开始走外面的铅笔线
 				App_Printf("task2\r\n");
+				DrawString(0, 9, "2");
 				quadrangle_handle->unInit(quadrangle_handle);
 				quadrangle_handle = Quadrangle_Init_With_Dots(pencil_line);
-				do
-				{
-					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
-				} while (!CHECK_EVENT(GOT_DOT_RED));
-				CLEAR_EVENT(GAME_OVER);
-				vTaskResume(Follow_By_Quadrangle_Handle);
 				break;
 			case task3:
 				// 开始走里面的A4纸线
 				App_Printf("task3\r\n");
+				DrawString(0, 9, "3");
 				do
 				{
 					Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
 					vTaskDelay(100);
 				} while (!CHECK_EVENT(GOT_QUADRANGLE));
-				do
-				{
-					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
-					vTaskDelay(100);
-				} while (!CHECK_EVENT(GOT_DOT_RED));
 				CLEAR_EVENT(GAME_OVER);
 				vTaskResume(Follow_By_Quadrangle_Handle);
 				break;
 			case task4:
 				// 开始走不规则摆放里面的A4纸线
+				DrawString(0, 9, "4");
 				App_Printf("task4\r\n");
 				do
 				{
 					Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
 					vTaskDelay(100);
 				} while (!CHECK_EVENT(GOT_QUADRANGLE));
-				do
-				{
-					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
-					vTaskDelay(100);
-				} while (!CHECK_EVENT(GOT_DOT_RED));
 				CLEAR_EVENT(GAME_OVER);
 				vTaskResume(Follow_By_Quadrangle_Handle);
 				break;
 			case task5:
 				// 开始发挥题，回到原点
+				DrawString(0, 9, "5");
 				App_Printf("task5\r\n");
 				do
 				{
-					Usart_SendArray(UART5, detect_quadrangle_instruction, 3);
+					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
 					vTaskDelay(100);
-				} while (!CHECK_EVENT(GOT_QUADRANGLE));
-				do
-				{
-					Usart_SendArray(UART5, detect_two_dots_instruction, 3);
-					vTaskDelay(100);
-				} while ((!CHECK_EVENT(GOT_DOT_RED)) && (!CHECK_EVENT(GOT_DOT_GREEN)));
+				} while (!CHECK_EVENT(GOT_DOT_RED));
+				SET_EVENT(FOLLWING);
 				CLEAR_EVENT(GAME_OVER);
 				vTaskResume(Return_The_Original_Point_Handle);
+				vTaskResume(Follow_Red_dot_Handle);
 				// !the code is not complete, we need to resume another task to achieve that green dot is following the red dot
 				break;
 			case task6:
 				// 开始发挥题，走里面的A4纸线
+				DrawString(0, 9, "6");
 				App_Printf("task6\r\n");
 				do
 				{
@@ -496,11 +552,13 @@ static void Task_schedule(void *pvParameters)
 				} while (CHECK_EVENT(GOT_QUADRANGLE));
 				do
 				{
-					Usart_SendArray(UART5, detect_two_dots_instruction, 3);
+					Usart_SendArray(UART5, detect_red_dot_instruction, 3);
 					vTaskDelay(100);
-				} while ((!CHECK_EVENT(GOT_DOT_RED)) && (!CHECK_EVENT(GOT_DOT_GREEN)));
+				} while (!CHECK_EVENT(GOT_DOT_RED));
+				SET_EVENT(FOLLWING);
 				CLEAR_EVENT(GAME_OVER);
 				vTaskResume(Follow_By_Quadrangle_Handle);
+				vTaskResume(Follow_Red_dot_Handle);
 				// !the code is not complete, we need to resume another task to achieve that green dot is following the red dot
 				break;
 			default:
@@ -509,6 +567,88 @@ static void Task_schedule(void *pvParameters)
 		}
 
 		vTaskDelay(100);
+	}
+}
+
+static void Follow_pencil_line(void *pvParameters)
+{
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = pdMS_TO_TICKS(40); // 10ms
+	xLastWakeTime = xTaskGetTickCount();
+
+	static int which_line = 0;
+	static int which_dot_on_line = 0;
+	static struct dot_t aim_dot;
+
+	static int x_error = 0;
+	static int y_error = 0;
+	static int x_target = 0;
+	static int y_target = 0;
+
+	static int arrive_index = 0;
+
+	for (;;)
+	{
+		// this section is used to stop the task, the judgement will never be true, the only way to stop the task is to use goto
+		if (0)
+		{
+		stop_this_task:
+			vTaskSuspend(Follow_By_Quadrangle_Handle);
+			CLEAR_EVENT(FOLLWING);
+			xLastWakeTime = xTaskGetTickCount();
+		}
+
+		aim_dot = (quadrangle_handle->GetSpectialDotOnLines(quadrangle_handle, which_line, which_dot_on_line));
+		// 1. get error
+		x_error = (pos_red_x_motor - aim_dot.x);
+		y_error = (pos_red_y_motor - aim_dot.y);
+
+		// 2. update the aim dot
+		if ((abs(x_error) < 4) && (abs(y_error) < 4))
+		{
+			arrive_index++;
+			if (arrive_index > 5)
+			{
+				arrive_index = 0;
+				which_dot_on_line++;
+				if (which_dot_on_line == DOT_NUM)
+
+				{
+					which_dot_on_line = 0;
+					which_line++;
+					if (which_line == 4)
+					{
+						which_line = 0;
+						vTaskDelay(700);
+						SET_EVENT(GAME_OVER);
+
+						// the delay in here is used for waiting linux upper got the instruction that the task is over
+						vTaskDelay(100);
+						CLEAR_EVENT(GOT_QUADRANGLE);
+						goto stop_this_task;
+					}
+				}
+				// aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+				aim_dot = (quadrangle_handle->GetSpectialDotOnLines(quadrangle_handle, which_line, which_dot_on_line));
+
+				// get the error again
+				x_error = (pos_red_x_motor - aim_dot.x);
+				y_error = (pos_red_y_motor - aim_dot.y);;
+			}
+		}
+
+		// 3. calculate the target position by PID
+		x_target = PID_Realize(X_PID_handle, x_error);
+		y_target = PID_Realize(Y_PID_handle, y_error);
+		//		App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
+
+		// 4. set the target position
+		red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
+		red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_target > 0) ? y_target : -y_target);
+
+	out:;
+		CLEAR_EVENT(GOT_QUADRANGLE);
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 	}
 }
 
@@ -536,27 +676,35 @@ static void Follow_By_Quadrangle(void *pvParameters)
 		{
 		stop_this_task:
 			vTaskSuspend(Follow_By_Quadrangle_Handle);
+			// vTaskSuspend(Follow_Red_dot_Handle);
+			CLEAR_EVENT(FOLLWING);
 			xLastWakeTime = xTaskGetTickCount();
 		}
 
-		aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+		// aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+		aim_dot = (quadrangle_handle->GetSpectialDotOnLines(quadrangle_handle, which_line, which_dot_on_line));
 		// 1. get error
-		if (dot_red.x + dot_red.y == 0)
+		if (dot_red_real.x + dot_red_real.y == 0)
 		{
 			goto out;
 		}
-		x_error = ((dot_red.x + Red_Dot_X_Estimated_Error) - aim_dot.x);
-		y_error = ((dot_red.y + Red_Dot_Y_Estimated_Error) - aim_dot.y);
+		x_error = ((dot_red_real.x + (int)Red_Dot_X_Estimated_Error) - aim_dot.x);
+		y_error = ((dot_red_real.y + (int)Red_Dot_Y_Estimated_Error) - aim_dot.y);
 
 		// 2. update the aim dot
 		if (which_dot_on_line)
 		{
-			u16 end_point_error_spar = (dot_red.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) * (dot_red.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) +
-									   (dot_red.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x) * (dot_red.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x);
-			if (end_point_error_spar < (y_error * y_error + x_error * x_error))
+			static struct dot_t end_dotofline;
+			end_dotofline = (quadrangle_handle->GetSpectialDotOnLines(quadrangle_handle, which_line, DOT_NUM - 1));
+			// u16 end_point_error_sqar = (dot_red_real.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) * (dot_red_real.y - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].y) +
+			// 						   (dot_red_real.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x) * (dot_red_real.x - quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1].x);
+			u16 end_point_error_sqar = (dot_red_real.y + (int)Red_Dot_Y_Estimated_Error - end_dotofline.y) * (dot_red_real.y + (int)Red_Dot_Y_Estimated_Error - end_dotofline.y) +
+									   (dot_red_real.x + (int)Red_Dot_X_Estimated_Error - end_dotofline.x) * (dot_red_real.x + (int)Red_Dot_X_Estimated_Error - end_dotofline.x);
+			if (end_point_error_sqar < (y_error * y_error + x_error * x_error)) // the end point is closer than the aim point
 			{
 				which_dot_on_line = DOT_NUM - 1;
-				aim_dot = (quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1]);
+				// aim_dot = (quadrangle_handle->dots_on_lines[which_line][DOT_NUM - 1]);
+				aim_dot = (end_dotofline);
 			}
 		}
 		if ((abs(x_error) < 4) && (abs(y_error) < 4))
@@ -579,24 +727,23 @@ static void Follow_By_Quadrangle(void *pvParameters)
 
 						// the delay in here is used for waiting linux upper got the instruction that the task is over
 						vTaskDelay(100);
-						CLEAR_EVENT(GOT_DOT_RED);
-						CLEAR_EVENT(GOT_DOT_GREEN);
 						CLEAR_EVENT(GOT_QUADRANGLE);
 						goto stop_this_task;
 					}
 				}
-				aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+				// aim_dot = (quadrangle_handle->dots_on_lines[which_line][which_dot_on_line]);
+				aim_dot = (quadrangle_handle->GetSpectialDotOnLines(quadrangle_handle, which_line, which_dot_on_line));
 
 				// get the error again
-				x_error = (dot_red.x - aim_dot.x);
-				y_error = (dot_red.y - aim_dot.y);
+				x_error = (dot_red_real.x - aim_dot.x);
+				y_error = (dot_red_real.y - aim_dot.y);
 			}
 		}
 
 		// 3. calculate the target position by PID
 		x_target = PID_Realize(X_PID_handle, x_error);
 		y_target = PID_Realize(Y_PID_handle, y_error);
-		App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
+		//		App_Printf("ey:%3d, ex:%3d\n", y_error, x_error);
 
 		// 4. set the target position
 		red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, (x_target > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_target > 0) ? x_target : -x_target);
@@ -607,7 +754,7 @@ static void Follow_By_Quadrangle(void *pvParameters)
 		Red_Dot_Y_Estimated_Error += y_target * pulse_per_pixel;
 
 	out:;
-		CLEAR_EVENT(GOT_DOT_RED);
+		CLEAR_EVENT(GOT_QUADRANGLE);
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 	}
 }
@@ -639,16 +786,20 @@ static void Return_The_Original_Point(void *pvParameters)
 
 			// the delay in here is used for waiting linux upper got the instruction that the task is over
 			vTaskDelay(100);
-			CLEAR_EVENT(GOT_DOT_RED);
-			CLEAR_EVENT(GOT_DOT_GREEN);
-			CLEAR_EVENT(GOT_QUADRANGLE);
+			// CLEAR_EVENT(GOT_DOT_RED);
+			// CLEAR_EVENT(GOT_DOT_GREEN);
+			// CLEAR_EVENT(GOT_QUADRANGLE);
+
+			CLEAR_EVENT(FOLLWING);
 			vTaskSuspend(Return_The_Original_Point_Handle);
+			// vTaskSuspend(Follow_Red_dot_Handle);
 			xLastWakeTime = xTaskGetTickCount();
 		}
 
 		// 1. get error
-		x_error = ((dot_red.x + Red_Dot_X_Estimated_Error) - original_point.x);
-		y_error = ((dot_red.y + Red_Dot_Y_Estimated_Error) - original_point.y);
+		// x_error = ()
+		x_error = pos_red_x_motor;
+		y_error = pos_red_y_motor;
 
 		// 2. judge whether the target position is reached
 		if ((abs(x_error) < 4) && (abs(y_error) < 4))
@@ -672,11 +823,11 @@ static void Return_The_Original_Point(void *pvParameters)
 		red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, (y_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_PID_output_local > 0) ? y_PID_output_local : -y_PID_output_local);
 
 		// 5. estimate the red dot position
-		Red_Dot_X_Estimated_Error += x_PID_output_local * pulse_per_pixel;
-		Red_Dot_Y_Estimated_Error += y_PID_output_local * pulse_per_pixel;
+		// Red_Dot_X_Estimated_Error += x_PID_output_local * pulse_per_pixel;
+		// Red_Dot_Y_Estimated_Error += y_PID_output_local * pulse_per_pixel;
 
 	out:;
-		CLEAR_EVENT(GOT_DOT_RED);
+		// CLEAR_EVENT(GOT_DOT_RED);
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 	}
 }
@@ -709,9 +860,10 @@ static void Follow_Red_dot(void *pvParameters)
 			xLastWakeTime = xTaskGetTickCount();
 		}
 
+		if(!CHECK_EVENT(FOLLWING)) goto stop_this_task;
 		// 1. get error
-		x_error = (dot_green.x + Green_Dot_X_Estimated_Error - dot_red.x - Red_Dot_X_Estimated_Error);
-		y_error = (dot_green.y + Green_Dot_Y_Estimated_Error - dot_red.y - Red_Dot_Y_Estimated_Error);
+		x_error = (-dot_red_real.x + Green_Dot_X_Estimated_Error + dot_red_from_other_camera.x - Red_Dot_X_Estimated_Error);
+		y_error = -(-dot_red_real.y + Green_Dot_Y_Estimated_Error + dot_red_from_other_camera.y - Red_Dot_Y_Estimated_Error);
 
 		// // 2. judge whether the target position is reached
 		// if ((abs(x_error) < 4) && (abs(y_error) < 4))
@@ -727,16 +879,16 @@ static void Follow_Red_dot(void *pvParameters)
 		// }
 
 		// 2. calculate the target position by PID
-		x_PID_output_local = PID_Realize(X_PID_handle, x_error);
-		y_PID_output_local = PID_Realize(Y_PID_handle, y_error);
+		x_PID_output_local = PID_Realize(Green_X_PID_handle, x_error);
+		y_PID_output_local = PID_Realize(Green_Y_PID_handle, y_error);
 
 		// 3. set the target position
 		green_x_stepper_motor_handle->Achieve_Distance(green_x_stepper_motor_handle, (x_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (x_PID_output_local > 0) ? x_PID_output_local : -x_PID_output_local);
 		green_y_stepper_motor_handle->Achieve_Distance(green_y_stepper_motor_handle, (y_PID_output_local > 0) ? (Stepper_Forward) : (Stepper_Backward), (y_PID_output_local > 0) ? y_PID_output_local : -y_PID_output_local);
 
 		// 4. estimate the green dot position
-		Green_Dot_X_Estimated_Error += x_PID_output_local * pulse_per_pixel;
-		Green_Dot_Y_Estimated_Error += y_PID_output_local * pulse_per_pixel;
+		// Green_Dot_X_Estimated_Error -= x_PID_output_local * pulse_per_pixel;
+		// Green_Dot_Y_Estimated_Error -= y_PID_output_local * pulse_per_pixel;
 
 	out:;
 		CLEAR_EVENT(GOT_DOT_GREEN);
@@ -754,20 +906,13 @@ static void USER_Init(void)
 	vSetupSysInfoTest();
 #endif
 
-	red_x_stepper_motor_handle = Stepper_Init(USART2, 0x01, U2_buffer_handle);
-	red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02, U4_buffer_handle);
-	green_x_stepper_motor_handle = Stepper_Init(USART2, 0x03, U2_buffer_handle);
-	
-	green_x_stepper_motor_handle->FOC_VERSION = Stepper_FOC_Version_4_2;
-	green_y_stepper_motor_handle = Stepper_Init(UART4, 0x04, U4_buffer_handle);
-	green_y_stepper_motor_handle->FOC_VERSION = Stepper_FOC_Version_4_2;
-
-	// green_x_stepper_motor_handle->Achieve_Distance(green_x_stepper_motor_handle, Stepper_Forward, 6400);
-	Delayms(1000);
-	int pos = green_x_stepper_motor_handle->Read_Current_Position(green_x_stepper_motor_handle);
-	App_Printf("pos:%d\r\n", pos);
-	while (1)
-		Delayms(10);
+	red_x_stepper_motor_handle = Stepper_Init(USART2, 0x01, U2_buffer_handle, Stepper_Check_Way_0X6B, Stepper_FOC_Version_5_0);
+	//	red_x_stepper_motor_handle->Achieve_Distance(red_x_stepper_motor_handle, Stepper_Forward, 2000);
+	red_y_stepper_motor_handle = Stepper_Init(UART4, 0x02, U4_buffer_handle, Stepper_Check_Way_0X6B, Stepper_FOC_Version_5_0);
+	//	red_y_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Backward, 2000);
+	green_x_stepper_motor_handle = Stepper_Init(USART2, 0x03, U2_buffer_handle, Stepper_Check_Way_0X6B, Stepper_FOC_Version_4_2);
+	// green_x_stepper_motor_handle->Achieve_Distance(green_x_stepper_motor_handle, Stepper_Forward, 20000);
+	green_y_stepper_motor_handle = Stepper_Init(UART4, 0x04, U4_buffer_handle, Stepper_Check_Way_0X6B, Stepper_FOC_Version_5_0);
 
 	// red_x_stepper_motor_handle->Achieve_Distance(red_y_stepper_motor_handle, Stepper_Forward, 2500);
 	//  while(1)
@@ -783,8 +928,10 @@ static void USER_Init(void)
 	quadrangle_handle = Quadrangle_Init();
 
 	// pid初始化
-	PID_Initialize(X_PID_handle, .8, 0., 0., 0, 0, -0);
-	PID_Initialize(Y_PID_handle, .8, 0., 0., 0, 0, -0);
+	PID_Initialize(X_PID_handle, .6, 0., 0., 0, 0, -0);
+	PID_Initialize(Y_PID_handle, .6, 0., 0., 0, 0, -0);
+	PID_Initialize(Green_X_PID_handle, .36, 0., 0., 0, 0, -0);
+	PID_Initialize(Green_Y_PID_handle, .35, 0., 0., 0, 0, -0);
 }
 
 /***********************************************************************

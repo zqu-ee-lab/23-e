@@ -13,6 +13,14 @@ void Quadrangle_Sort(struct quadrangle_t *this)
             the_leftest_dot = this->dots[i];
             the_leftest_dot_index = i;
         }
+        else if(this->dots[i].x == the_leftest_dot.x)
+        {
+            if (this->dots[i].y < the_leftest_dot.y)
+            {
+                the_leftest_dot = this->dots[i];
+                the_leftest_dot_index = i;
+            }
+        }
     }
     // the leftest dot is found
     // the leftest dot is the first dot
@@ -71,19 +79,32 @@ void Quadrangle_Sort(struct quadrangle_t *this)
     return;
 }
 
-void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
+// void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
+// {
+//     // calculate the dots on the lines between the dots
+//     for (int i = 0; i < 4; i++)
+//     {
+//         const int in_dot_num = DOT_NUM-1;
+//         for (int j = 0; j < in_dot_num; j++)
+//         {
+//             this->dots_on_lines[i][j].x = (-this->dots[i].x + this->dots[(i + 1) % 4].x) / in_dot_num * j + this->dots[i].x;
+//             this->dots_on_lines[i][j].y = (-this->dots[i].y + this->dots[(i + 1) % 4].y) / in_dot_num * j + this->dots[i].y;
+//         }
+//         this->dots_on_lines[i][in_dot_num] = this->dots[(i + 1) % 4];
+//     }
+// }
+
+struct dot_t Quadrangle_GetSpectialDotOnLines(struct quadrangle_t *this, int line_index, int dot_index)
 {
-    // calculate the dots on the lines between the dots
-    for (int i = 0; i < 4; i++)
+    struct dot_t dot_local;
+    if(dot_index == DOT_NUM-1)
     {
-        const int in_dot_num = DOT_NUM-1;
-        for (int j = 0; j < in_dot_num; j++)
-        {
-            this->dots_on_lines[i][j].x = (-this->dots[i].x + this->dots[(i + 1) % 4].x) / in_dot_num * j + this->dots[i].x;
-            this->dots_on_lines[i][j].y = (-this->dots[i].y + this->dots[(i + 1) % 4].y) / in_dot_num * j + this->dots[i].y;
-        }
-        this->dots_on_lines[i][in_dot_num] = this->dots[(i + 1) % 4];
+        // dot_local = this->dots[(line_index + 1) % 4];
+        return this->dots[(line_index + 1) % 4];
     }
+    dot_local.x = (-this->dots[line_index].x + this->dots[(line_index + 1) % 4].x) / (DOT_NUM-1) * dot_index + this->dots[line_index].x;
+    dot_local.y = (-this->dots[line_index].y + this->dots[(line_index + 1) % 4].y) / (DOT_NUM-1) * dot_index + this->dots[line_index].y;
+    return dot_local;
 }
 
 void Quadrangle_Equal_Scaling(struct quadrangle_t *this, float32_t scale)
@@ -123,7 +144,8 @@ struct quadrangle_t *Quadrangle_Init()
         }
     }
     this->Sort = Quadrangle_Sort;
-    this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
+    // this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
+    this->GetSpectialDotOnLines = Quadrangle_GetSpectialDotOnLines;
     this->unInit = Quadrangle_unInit;
     this->Equal_Scaling = Quadrangle_Equal_Scaling;
 
@@ -141,13 +163,15 @@ struct quadrangle_t *Quadrangle_Init_With_Dots(struct dot_t *dots)
         }
     }
     this->Sort = Quadrangle_Sort;
-    this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
+    // this->GetDotsOnLines = Quadrangle_GetDotsOnLines;
     for (int i = 0; i < 4; i++)
     {
         this->dots[i] = dots[i];
     }
     this->Sort(this);
-    this->GetDotsOnLines(this);
+    this->GetSpectialDotOnLines = Quadrangle_GetSpectialDotOnLines;
+    this->Equal_Scaling = Quadrangle_Equal_Scaling;
+    // this->GetDotsOnLines(this);
     this->unInit = Quadrangle_unInit;
 
     return this;

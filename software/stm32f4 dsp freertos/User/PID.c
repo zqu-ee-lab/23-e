@@ -30,7 +30,7 @@ void PID_Initialize(struct PID *pid, float KP, float KD, float KI, int Traget, f
  * @param {float} Current 当前值
  * @return {*}
  */
-int PID_Realize(struct PID *pid, float Current)
+int PID_Realize(struct PID *pid, const float Current)
 {
     
     

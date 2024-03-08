@@ -13,10 +13,12 @@ struct dot_t
 struct quadrangle_t
 {
     struct dot_t dots[4];
-    struct dot_t dots_on_lines[4][DOT_NUM];
+    // struct dot_t dots_on_lines[4][DOT_NUM];
 
     void (*Sort)(struct quadrangle_t *this);
-    void (*GetDotsOnLines)(struct quadrangle_t *this);
+    struct dot_t (*GetSpectialDotOnLines)(struct quadrangle_t *this, int line_index, int dot_index);
+
+    // void (*GetDotsOnLines)(struct quadrangle_t *this);
     void (*unInit)(struct quadrangle_t *this);
     void (*Equal_Scaling)(struct quadrangle_t *this, float32_t scale);
 };
