@@ -44,6 +44,7 @@ struct Steeper_t
 };
 
 void Stepper_Achieve_Distance(struct Steeper_t* this, enum Stepper_Direction_t direction, uint32_t distance);
+void Stepper_stop_protect(struct Steeper_t *this);
 // int32_t Stepper_get_current_position_from_buff(struct Steeper_t *this);
 
 #endif /* STEPPER_H */
