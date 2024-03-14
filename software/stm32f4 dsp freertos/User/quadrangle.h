@@ -8,7 +8,7 @@ struct dot_t
 	int16_t y;
 };
 
-#define DOT_NUM 5
+#define DOT_NUM 3
 
 struct quadrangle_t
 {

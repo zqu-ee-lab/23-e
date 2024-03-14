@@ -115,6 +115,50 @@ void Stepper_Achieve_Distance(struct Steeper_t *this, enum Stepper_Direction_t d
 	}
 }
 
+void Stepper_Achieve_Distance_In_specific_Speed(struct Steeper_t *this, enum Stepper_Direction_t direction, uint32_t distance, uint32_t speed)
+{
+	uint8_t data[13] = {0};
+	data[0] = this->address;
+	data[1] = 0xFD; // Distance controlled instruction
+	data[2] = direction;
+
+	data[3] = speed >> 8;
+	data[4] = speed;
+
+	data[5] = this->acceleration;
+
+	data[6] = distance >> 24;
+	data[7] = distance >> 16;
+	data[8] = distance >> 8;
+	data[9] = distance;
+
+	data[10] = 0x00;
+	data[11] = 0x00; // multiple instructions
+
+	if (this->check_way == Stepper_Check_Way_XOR)
+	{
+		uint8_t check = 0;
+		for (int i = 0; i < 12; i++)
+		{
+			check ^= data[i];
+		}
+		data[12] = check;
+	}
+	else if (this->check_way == Stepper_Check_Way_0X6B)
+	{
+		data[12] = 0x6B;
+	}
+	else
+	{
+		// error
+		App_Printf("Stepper_Achieve_Distance: check way error!\n");
+		return;
+	}
+
+	this->Send_Instruction(this, data, 13);
+	return;
+}
+
 void Stepper_stop_protect(struct Steeper_t *this)
 {
 	uint8_t date[4];

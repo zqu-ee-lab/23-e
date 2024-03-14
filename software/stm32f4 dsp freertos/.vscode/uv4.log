@@ -1,3 +1,4 @@
-Load "c:\\Users\\jar chou\\Desktop\\vscode-repository\\23-e\\software\\stm32f4 dsp freertos\\Output\\Fire_FreeRTOS.axf" 
-Erase Done.Programming Done.Verify OK.Application running ...
-Flash Load finished at 20:07:07
+*** Using Compiler 'V6.19', folder: 'C:\Keil_v5\ARM\ARMCLANG\Bin'
+Build target 'Fire_FreeRTOS'
+".\Output\Fire_FreeRTOS.axf" - 0 Error(s), 0 Warning(s).
+Build Time Elapsed:  00:00:01

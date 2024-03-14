@@ -78,32 +78,13 @@ void Quadrangle_Sort(struct quadrangle_t *this)
 	return;
 }
 
-// void Quadrangle_GetDotsOnLines(struct quadrangle_t *this)
-// {
-//     // calculate the dots on the lines between the dots
-//     for (int i = 0; i < 4; i++)
-//     {
-//         const int in_dot_num = DOT_NUM-1;
-//         for (int j = 0; j < in_dot_num; j++)
-//         {
-//             this->dots_on_lines[i][j].x = (-this->dots[i].x + this->dots[(i + 1) % 4].x) / in_dot_num * j + this->dots[i].x;
-//             this->dots_on_lines[i][j].y = (-this->dots[i].y + this->dots[(i + 1) % 4].y) / in_dot_num * j + this->dots[i].y;
-//         }
-//         this->dots_on_lines[i][in_dot_num] = this->dots[(i + 1) % 4];
-//     }
-// }
-
 struct dot_t Quadrangle_GetSpectialDotOnLines(struct quadrangle_t *this, int line_index, int dot_index)
 {
 	struct dot_t dot_local;
-	if (dot_index == DOT_NUM - 1)
-	{
-		// dot_local = this->dots[(line_index + 1) % 4];
-		return this->dots[(line_index + 1) % 4];
-	}
+	
 	dot_local.x = (-this->dots[line_index].x + this->dots[(line_index + 1) % 4].x) / (DOT_NUM - 1) * dot_index + this->dots[line_index].x;
 	dot_local.y = (-this->dots[line_index].y + this->dots[(line_index + 1) % 4].y) / (DOT_NUM - 1) * dot_index + this->dots[line_index].y;
-	if (line_index >= 2)
+	if (1&&line_index >= 2)
 	{
 		double center_x = 0, center_y = 0;
 		for (int i = 0; i < 4; i++)
@@ -113,14 +94,36 @@ struct dot_t Quadrangle_GetSpectialDotOnLines(struct quadrangle_t *this, int lin
 		}
 		center_x /= 4;
 		center_y /= 4;
-		dot_local.x = (dot_local.x - center_x) * .92 + center_x;
-		dot_local.y = (dot_local.y - center_y) * .92 + center_y;
+		dot_local.x = (dot_local.x - center_x) * .95 + center_x;
+		dot_local.y = (dot_local.y - center_y) * .95 + center_y;
 	}
-	if(line_index == 3|| line_index == 2){
-		if(dot_index == 0){
-			dot_local.x = dot_local.x * .96 + this->dots[line_index-1].x * .04;
-			dot_local.y = dot_local.y * .96 + this->dots[line_index-1].y * .04;
+	if(1&&line_index==3&&dot_index==DOT_NUM-1)
+	{
+		dot_local.x = dot_local.x * .97 + this->dots[1].x * .03;
+		dot_local.y = dot_local.y * .97 + this->dots[1].y * .03;
+		return dot_local;
+	}
+	if (0&&(line_index == 3 || line_index == 2))
+	{
+		if (dot_index == 0)
+		{
+			dot_local.x = dot_local.x * .98 + this->dots[line_index - 1].x * .02;
+			dot_local.y = dot_local.y * .98 + this->dots[line_index - 1].y * .02;
 		}
+	}
+	if (0&&line_index == 2 || line_index == 1)
+	{
+		if (dot_index == DOT_NUM - 1)
+		{
+			dot_local.x = dot_local.x * .98 + this->dots[line_index].x * .02;
+			dot_local.y = dot_local.y * .98 + this->dots[line_index].y * .02;
+			return dot_local;
+		}
+	}
+	else if (dot_index == DOT_NUM - 1)
+	{
+		// dot_local = this->dots[(line_index + 1) % 4];
+		return this->dots[(line_index + 1) % 4];
 	}
 	return dot_local;
 }
